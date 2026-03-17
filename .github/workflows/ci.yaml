@@ -1,0 +1,40 @@
+name: Test Suite
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: make build
+
+      - name: Format check
+        run: make fmt
+
+      - name: Check unstaged changes
+        run: ./check_unstaged.sh
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test

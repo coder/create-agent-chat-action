@@ -1,0 +1,77 @@
+name: "Coder Create Agent Chat"
+description: "Create a Coder Agent Chat for a GitHub user, with support for issue commenting"
+author: "Coder Technologies Inc. <https://coder.com>"
+
+branding:
+  icon: message-circle
+  color: purple
+
+inputs:
+  # Required inputs
+  chat-prompt:
+    description: "Prompt/instructions to send to the agent chat"
+    required: true
+
+  coder-token:
+    description: "Coder session token for authentication"
+    required: true
+
+  coder-url:
+    description: "Coder deployment URL"
+    required: true
+
+  github-issue-url:
+    description: "GitHub issue URL to link this chat to"
+    required: true
+
+  github-token:
+    description: "GitHub token for API operations"
+    required: true
+
+  github-user-id:
+    description: "GitHub user ID to create chat for. If provided, `coder-username` must not be set."
+    required: false
+
+  coder-username:
+    description: "Coder username to create chat for. If provided, github-user-id must not be set. Useful for automated workflows without a triggering user."
+    required: false
+
+  # Optional inputs
+  coder-organization:
+    description: "Coder organization name"
+    required: false
+    default: "default"
+
+  workspace-id:
+    description: "Existing workspace ID to use for the chat. If not provided, Agents will auto-provision a workspace."
+    required: false
+
+  model-config-id:
+    description: "Model configuration ID to use for the chat (optional)"
+    required: false
+
+  existing-chat-id:
+    description: "Existing chat ID to send a follow-up message to instead of creating a new chat"
+    required: false
+
+  comment-on-issue:
+    description: "Whether to comment on the GitHub issue"
+    required: false
+    default: "true"
+
+outputs:
+  coder-username:
+    description: "The Coder username resolved from GitHub user"
+
+  chat-id:
+    description: "The chat ID"
+
+  chat-url:
+    description: "The URL to view the chat in Coder"
+
+  chat-created:
+    description: "Whether the chat was newly created (true) or a message was sent to an existing chat (false)"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
