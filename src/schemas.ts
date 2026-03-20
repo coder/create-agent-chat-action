@@ -6,7 +6,6 @@ const BaseInputsSchema = z.object({
 	coderURL: z.string().url(),
 	githubIssueURL: z.string().url(),
 	githubToken: z.string(),
-	coderOrganization: z.string().min(1).optional().default("default"),
 	workspaceId: z.string().uuid().optional(),
 	modelConfigId: z.string().uuid().optional(),
 	existingChatId: z.string().uuid().optional(),

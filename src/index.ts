@@ -15,9 +15,6 @@ async function main() {
 			coderURL: core.getInput("coder-url", { required: true }),
 			coderToken: core.getInput("coder-token", { required: true }),
 			chatPrompt: core.getInput("chat-prompt", { required: true }),
-			coderOrganization: core.getInput("coder-organization", {
-				required: true,
-			}),
 			githubIssueURL: core.getInput("github-issue-url", { required: true }),
 			githubToken: core.getInput("github-token", { required: true }),
 			githubUserID,
@@ -30,7 +27,6 @@ async function main() {
 
 		core.debug("Inputs validated successfully");
 		core.debug(`Coder URL: ${inputs.coderURL}`);
-		core.debug(`Organization: ${inputs.coderOrganization}`);
 
 		const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
 		const octokit = github.getOctokit(inputs.githubToken);

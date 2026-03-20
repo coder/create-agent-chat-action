@@ -4,7 +4,6 @@ import { type ActionInputs, ActionInputsSchema } from "./schemas";
 const actionInputValid: ActionInputs = {
 	coderURL: "https://coder.test",
 	coderToken: "test-token",
-	coderOrganization: "my-org",
 	chatPrompt: "test prompt",
 	githubIssueURL: "https://github.com/owner/repo/issues/123",
 	githubToken: "github-token",
@@ -18,7 +17,6 @@ describe("ActionInputsSchema", () => {
 			const result = ActionInputsSchema.parse(actionInputValid);
 			expect(result.coderURL).toBe(actionInputValid.coderURL);
 			expect(result.coderToken).toBe(actionInputValid.coderToken);
-			expect(result.coderOrganization).toBe(actionInputValid.coderOrganization);
 			expect(result.chatPrompt).toBe(actionInputValid.chatPrompt);
 			expect(result.githubIssueURL).toBe(actionInputValid.githubIssueURL);
 			expect(result.githubToken).toBe(actionInputValid.githubToken);

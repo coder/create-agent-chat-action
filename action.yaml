@@ -38,9 +38,10 @@ inputs:
 
   # Optional inputs
   coder-organization:
-    description: "Coder organization name"
+    description: "Coder organization name (currently unused)"
     required: false
     default: "default"
+    deprecationMessage: "The coder-organization input is not used by this action and will be removed in a future release."
 
   workspace-id:
     description: "Existing workspace ID to use for the chat. If not provided, Agents will auto-provision a workspace."
