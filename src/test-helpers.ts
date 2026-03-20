@@ -139,6 +139,6 @@ export function createMockResponse(
 		statusText: options.statusText ?? "OK",
 		json: async () => body,
 		text: async () => JSON.stringify(body),
-		headers: new Map(),
+		headers: new Headers(),
 	};
 }
