@@ -46,14 +46,15 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Comment on GitHub issue with chat link
+	 * Comment on GitHub issue with chat link. Returns true on
+	 * success, false if the GitHub API call failed.
 	 */
 	async commentOnIssue(
 		chatUrl: string,
 		owner: string,
 		repo: string,
 		issueNumber: number,
-	): Promise<void> {
+	): Promise<boolean> {
 		const body = `Agent chat created: ${chatUrl}`;
 
 		try {
@@ -84,8 +85,10 @@ export class CoderAgentChatAction {
 					body,
 				});
 			}
+			return true;
 		} catch (error) {
 			core.error(`Failed to comment on issue: ${error}`);
+			return false;
 		}
 	}
 
@@ -169,13 +172,15 @@ export class CoderAgentChatAction {
 			core.info(
 				`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 			);
-			await this.commentOnIssue(
+			const commented = await this.commentOnIssue(
 				chatUrl,
 				githubOrg,
 				githubRepo,
 				githubIssueNumber,
 			);
-			core.info("Comment posted successfully");
+			if (commented) {
+				core.info("Comment posted successfully");
+			}
 		} else {
 			core.info("Skipping comment on issue (commentOnIssue is false)");
 		}

@@ -170,7 +170,31 @@ describe("CoderAgentChatAction", () => {
 			});
 		});
 
-		test("warns but doesn't fail on GitHub API error", async () => {
+		test("returns true on success", async () => {
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
+			);
+
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			const result = await action.commentOnIssue(
+				"chat-url",
+				"owner",
+				"repo",
+				123,
+			);
+			expect(result).toBe(true);
+		});
+
+		test("returns false on GitHub API error", async () => {
 			octokit.rest.issues.listComments.mockRejectedValue(
 				new Error("API Error"),
 			);
@@ -182,9 +206,8 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(
-				action.commentOnIssue("url", "owner", "repo", 123),
-			).resolves.toBeUndefined();
+			const result = await action.commentOnIssue("url", "owner", "repo", 123);
+			expect(result).toBe(false);
 		});
 	});
 
