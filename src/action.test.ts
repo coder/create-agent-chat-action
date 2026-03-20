@@ -66,6 +66,20 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
+		test("rejects URL with extra path segments after issue number", () => {
+			const inputs = createMockInputs({
+				githubIssueURL: "https://github.com/owner/repo/issues/123/extra",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+			expect(() => action.parseGithubIssueURL()).toThrowError(
+				"Invalid issue URL",
+			);
+		});
+
 		test("handles non-github.com URL", () => {
 			const inputs = createMockInputs({
 				githubIssueURL: "https://code.acme.com/owner/repo/issues/123",

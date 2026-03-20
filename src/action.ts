@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { ChatIdSchema } from "./coder-client";
 import type { CreateChatRequest, CoderClient, ChatId } from "./coder-client";
 import type { ActionInputs, ActionOutputs } from "./schemas";
 import type { getOctokit } from "@actions/github";
@@ -25,7 +26,7 @@ export class CoderAgentChatAction {
 		}
 
 		const match = this.inputs.githubIssueURL.match(
-			/([^/]+)\/([^/]+)\/issues\/(\d+)/,
+			/\/([^/]+)\/([^/]+)\/issues\/(\d+)\/?$/,
 		);
 		if (!match) {
 			throw new Error(`Invalid issue URL: ${this.inputs.githubIssueURL}`);
@@ -93,6 +94,7 @@ export class CoderAgentChatAction {
 	 * Main action execution
 	 */
 	async run(): Promise<ActionOutputs> {
+		// TODO: wire this.inputs.coderOrganization into API calls when the Coder API supports organization-scoped chats
 		let coderUsername: string;
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
@@ -119,7 +121,7 @@ export class CoderAgentChatAction {
 			core.info(
 				`Sending message to existing chat: ${this.inputs.existingChatId}`,
 			);
-			const chatId = this.inputs.existingChatId as ChatId;
+			const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
 
 			await this.coder.createChatMessage(chatId, {
 				content: [{ type: "text", text: this.inputs.chatPrompt }],

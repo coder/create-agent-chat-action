@@ -58,7 +58,6 @@ async function main() {
 			core.setFailed("Unknown error occurred");
 			console.error("Unknown error:", error);
 		}
-		process.exit(1);
 	}
 }
 
