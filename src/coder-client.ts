@@ -38,6 +38,7 @@ export class RealCoderClient implements CoderClient {
 		const response = await fetch(url, {
 			...options,
 			headers: { ...this.headers, ...options?.headers },
+			signal: options?.signal ?? AbortSignal.timeout(30_000),
 		});
 
 		if (!response.ok) {

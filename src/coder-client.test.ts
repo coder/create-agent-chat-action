@@ -156,4 +156,41 @@ describe("CoderClient", () => {
 			);
 		});
 	});
+
+	describe("request timeout", () => {
+		test("aborts when server never responds", async () => {
+			const original = AbortSignal.timeout;
+			try {
+				// Use a 10ms timeout so the test doesn't wait 30s.
+				AbortSignal.timeout = () => original.call(AbortSignal, 10);
+				mockFetch.mockImplementation(
+					(_url: string, init?: RequestInit) =>
+						new Promise((_resolve, reject) => {
+							// Keep event loop alive so the abort timer fires.
+							const keepalive = setTimeout(() => {}, 5000);
+							if (init?.signal?.aborted) {
+								clearTimeout(keepalive);
+								reject(init.signal.reason);
+								return;
+							}
+							init?.signal?.addEventListener("abort", () => {
+								clearTimeout(keepalive);
+								reject(init.signal?.reason);
+							});
+						}),
+				);
+				await expect(client.getChat(mockChat.id)).rejects.toThrow();
+			} finally {
+				AbortSignal.timeout = original;
+			}
+		});
+
+		test("passes signal to fetch", async () => {
+			mockFetch.mockResolvedValue(createMockResponse(mockChat));
+			await client.getChat(mockChat.id);
+			const call = mockFetch.mock.calls[0];
+			const init = call[1] as RequestInit;
+			expect(init.signal).toBeInstanceOf(AbortSignal);
+		});
+	});
 });
