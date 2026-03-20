@@ -66,7 +66,7 @@ export class RealCoderClient implements CoderClient {
 			throw new CoderAPIError("GitHub user ID cannot be undefined", 400);
 		}
 		if (githubUserId === 0) {
-			throw "GitHub user ID cannot be 0";
+			throw new CoderAPIError("GitHub user ID cannot be 0", 400);
 		}
 		const endpoint = `/api/v2/users?q=${encodeURIComponent(`github_com_user_id:${githubUserId}`)}`;
 		const response = await this.request<unknown[]>(endpoint);
