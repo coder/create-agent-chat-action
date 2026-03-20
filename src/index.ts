@@ -8,7 +8,7 @@ async function main() {
 	try {
 		const githubUserIdInput = core.getInput("github-user-id");
 		const githubUserID = githubUserIdInput
-			? Number.parseInt(githubUserIdInput, 10)
+			? Number(githubUserIdInput)
 			: undefined;
 
 		const inputs = ActionInputsSchema.parse({

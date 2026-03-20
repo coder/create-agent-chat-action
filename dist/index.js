@@ -3,25 +3,43 @@ var __getProtoOf = Object.getPrototypeOf;
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+function __accessProp(key) {
+  return this[key];
+}
+var __toESMCache_node;
+var __toESMCache_esm;
 var __toESM = (mod, isNodeMode, target) => {
+  var canCache = mod != null && typeof mod === "object";
+  if (canCache) {
+    var cache = isNodeMode ? __toESMCache_node ??= new WeakMap : __toESMCache_esm ??= new WeakMap;
+    var cached = cache.get(mod);
+    if (cached)
+      return cached;
+  }
   target = mod != null ? __create(__getProtoOf(mod)) : {};
   const to = isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
   for (let key of __getOwnPropNames(mod))
     if (!__hasOwnProp.call(to, key))
       __defProp(to, key, {
-        get: () => mod[key],
+        get: __accessProp.bind(mod, key),
         enumerable: true
       });
+  if (canCache)
+    cache.set(mod, to);
   return to;
 };
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
+var __returnValue = (v) => v;
+function __exportSetter(name, newValue) {
+  this[name] = __returnValue.bind(null, newValue);
+}
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, {
       get: all[name],
       enumerable: true,
       configurable: true,
-      set: (newValue) => all[name] = () => newValue
+      set: __exportSetter.bind(all, name)
     });
 };
 
@@ -3447,7 +3465,7 @@ var require_constants2 = __commonJS((exports2, module2) => {
     }
   })();
   var channel;
-  var structuredClone = globalThis.structuredClone ?? function structuredClone(value, options = undefined) {
+  var structuredClone = globalThis.structuredClone ?? function structuredClone2(value, options = undefined) {
     if (arguments.length === 0) {
       throw new TypeError("missing argument");
     }
@@ -16372,7 +16390,7 @@ var require_undici = __commonJS((exports2, module2) => {
   module2.exports.getGlobalDispatcher = getGlobalDispatcher;
   if (util.nodeMajor > 16 || util.nodeMajor === 16 && util.nodeMinor >= 8) {
     let fetchImpl = null;
-    module2.exports.fetch = async function fetch(resource) {
+    module2.exports.fetch = async function fetch2(resource) {
       if (!fetchImpl) {
         fetchImpl = require_fetch().fetch;
       }
@@ -22708,11 +22726,11 @@ var require_github = __commonJS((exports2) => {
 });
 
 // src/index.ts
-var core2 = __toESM(require_core());
-var github = __toESM(require_github());
+var core2 = __toESM(require_core(), 1);
+var github = __toESM(require_github(), 1);
 
 // src/action.ts
-var core = __toESM(require_core());
+var core = __toESM(require_core(), 1);
 
 class CoderAgentChatAction {
   coder;
@@ -26946,7 +26964,7 @@ var BaseInputsSchema = exports_external.object({
   commentOnIssue: exports_external.boolean().default(true)
 });
 var WithGithubUserIDSchema = BaseInputsSchema.extend({
-  githubUserID: exports_external.number().min(1),
+  githubUserID: exports_external.number().int().min(1),
   coderUsername: exports_external.undefined()
 });
 var WithCoderUsernameSchema = BaseInputsSchema.extend({
@@ -26968,7 +26986,7 @@ var ActionOutputsSchema = exports_external.object({
 async function main() {
   try {
     const githubUserIdInput = core2.getInput("github-user-id");
-    const githubUserID = githubUserIdInput ? Number.parseInt(githubUserIdInput, 10) : undefined;
+    const githubUserID = githubUserIdInput ? Number(githubUserIdInput) : undefined;
     const inputs = ActionInputsSchema.parse({
       coderURL: core2.getInput("coder-url", { required: true }),
       coderToken: core2.getInput("coder-token", { required: true }),

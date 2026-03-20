@@ -156,6 +156,22 @@ describe("ActionInputsSchema", () => {
 			expect(() => ActionInputsSchema.parse(input)).toThrow();
 		});
 
+		test("rejects non-integer githubUserID", () => {
+			const input = {
+				...actionInputValid,
+				githubUserID: 12.5,
+			};
+			expect(() => ActionInputsSchema.parse(input)).toThrow();
+		});
+
+		test("rejects NaN githubUserID", () => {
+			const input = {
+				...actionInputValid,
+				githubUserID: NaN,
+			};
+			expect(() => ActionInputsSchema.parse(input)).toThrow();
+		});
+
 		test("rejects empty coderUsername", () => {
 			const { githubUserID: _, ...withoutGithubUserID } = actionInputValid;
 			const input = { ...withoutGithubUserID, coderUsername: "" };

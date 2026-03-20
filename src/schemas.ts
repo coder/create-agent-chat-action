@@ -14,7 +14,7 @@ const BaseInputsSchema = z.object({
 });
 
 const WithGithubUserIDSchema = BaseInputsSchema.extend({
-	githubUserID: z.number().min(1),
+	githubUserID: z.number().int().min(1),
 	coderUsername: z.undefined(),
 });
 
