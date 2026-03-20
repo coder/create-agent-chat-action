@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { RealCoderClient, CoderAPIError } from "./coder-client";
 import {
 	mockUser,
@@ -14,12 +14,18 @@ import {
 describe("CoderClient", () => {
 	let client: RealCoderClient;
 	let mockFetch: ReturnType<typeof mock>;
+	let originalFetch: typeof fetch;
 
 	beforeEach(() => {
+		originalFetch = global.fetch;
 		const mockInputs = createMockInputs();
 		client = new RealCoderClient(mockInputs.coderURL, mockInputs.coderToken);
 		mockFetch = mock(() => Promise.resolve(createMockResponse([])));
 		global.fetch = mockFetch as unknown as typeof fetch;
+	});
+
+	afterEach(() => {
+		global.fetch = originalFetch;
 	});
 
 	describe("getCoderUserByGitHubId", () => {
@@ -42,14 +48,14 @@ describe("CoderClient", () => {
 
 		test("throws when multiple users found", async () => {
 			mockFetch.mockResolvedValue(createMockResponse(mockUserListDuplicate));
-			expect(
+			await expect(
 				client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0),
 			).rejects.toThrow(CoderAPIError);
 		});
 
 		test("throws when no user found", async () => {
 			mockFetch.mockResolvedValue(createMockResponse(mockUserListEmpty));
-			expect(
+			await expect(
 				client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0),
 			).rejects.toThrow(CoderAPIError);
 		});
@@ -61,13 +67,13 @@ describe("CoderClient", () => {
 					{ ok: false, status: 401, statusText: "Unauthorized" },
 				),
 			);
-			expect(
+			await expect(
 				client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0),
 			).rejects.toThrow(CoderAPIError);
 		});
 
 		test("throws when GitHub user ID is 0", async () => {
-			expect(client.getCoderUserByGitHubId(0)).rejects.toThrow(
+			await expect(client.getCoderUserByGitHubId(0)).rejects.toThrow(
 				"GitHub user ID cannot be 0",
 			);
 		});
@@ -132,11 +138,26 @@ describe("CoderClient", () => {
 					{ ok: false, status: 404, statusText: "Not Found" },
 				),
 			);
-			expect(
+			await expect(
 				client.createChatMessage(mockChat.id, {
 					content: [{ type: "text", text: "Test" }],
 				}),
 			).rejects.toThrow(CoderAPIError);
+		});
+	});
+
+	describe("listChats", () => {
+		test("returns chat list", async () => {
+			mockFetch.mockResolvedValue(createMockResponse([mockChat]));
+			const result = await client.listChats();
+			expect(result).toHaveLength(1);
+			expect(result[0].id).toBe(mockChat.id);
+		});
+
+		test("returns empty list", async () => {
+			mockFetch.mockResolvedValue(createMockResponse([]));
+			const result = await client.listChats();
+			expect(result).toHaveLength(0);
 		});
 	});
 
@@ -153,6 +174,14 @@ describe("CoderClient", () => {
 						"Coder-Session-Token": "test-token",
 					}),
 				}),
+			);
+		});
+	});
+
+	describe("getCoderUserByGitHubId edge cases", () => {
+		test("throws when GitHub user ID is undefined", async () => {
+			await expect(client.getCoderUserByGitHubId(undefined)).rejects.toThrow(
+				"GitHub user ID cannot be undefined",
 			);
 		});
 	});

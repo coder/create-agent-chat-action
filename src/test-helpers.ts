@@ -127,6 +127,17 @@ export function createMockOctokit() {
 }
 
 /**
+ * Set up Octokit mocks for the happy path of commenting on an issue
+ * (no existing comment, so a new one is created).
+ */
+export function mockOctokitCommentingHappyPath(
+	octokit: ReturnType<typeof createMockOctokit>,
+) {
+	octokit.rest.issues.listComments.mockResolvedValue({ data: [] });
+	octokit.rest.issues.createComment.mockResolvedValue({});
+}
+
+/**
  * Create mock fetch response
  */
 export function createMockResponse(

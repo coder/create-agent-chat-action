@@ -5,6 +5,7 @@ import { ActionOutputsSchema } from "./schemas";
 import {
 	MockCoderClient,
 	createMockOctokit,
+	mockOctokitCommentingHappyPath,
 	createMockInputs,
 	mockUser,
 	mockChat,
@@ -182,7 +183,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(
+			await expect(
 				action.commentOnIssue("url", "owner", "repo", 123),
 			).resolves.toBeUndefined();
 		});
@@ -191,6 +192,7 @@ describe("CoderAgentChatAction", () => {
 	test("creates new chat successfully", async () => {
 		coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
 		coderClient.mockCreateChat.mockResolvedValue(mockChat);
+		mockOctokitCommentingHappyPath(octokit);
 
 		const inputs = createMockInputs({
 			githubUserID: 12345,
@@ -216,10 +218,12 @@ describe("CoderAgentChatAction", () => {
 		expect(parsedResult.chatUrl).toMatch(
 			/^https:\/\/coder\.test\/chats\/[a-f0-9-]+$/,
 		);
+		expect(octokit.rest.issues.createComment).toHaveBeenCalled();
 	});
 
 	test("creates chat using direct coder-username", async () => {
 		coderClient.mockCreateChat.mockResolvedValue(mockChat);
+		mockOctokitCommentingHappyPath(octokit);
 
 		const inputs = createMockInputs({
 			githubUserID: undefined,
@@ -239,6 +243,7 @@ describe("CoderAgentChatAction", () => {
 		const parsedResult = ActionOutputsSchema.parse(result);
 		expect(parsedResult.coderUsername).toBe(mockUser.username);
 		expect(parsedResult.chatCreated).toBe(true);
+		expect(octokit.rest.issues.createComment).toHaveBeenCalled();
 	});
 
 	test("sends message to existing chat", async () => {
@@ -246,6 +251,7 @@ describe("CoderAgentChatAction", () => {
 		coderClient.mockCreateChatMessage.mockResolvedValue(
 			mockChatMessageResponse,
 		);
+		mockOctokitCommentingHappyPath(octokit);
 
 		const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
 		const inputs = createMockInputs({
@@ -272,11 +278,13 @@ describe("CoderAgentChatAction", () => {
 		const parsedResult = ActionOutputsSchema.parse(result);
 		expect(parsedResult.chatCreated).toBe(false);
 		expect(parsedResult.chatId).toBe(existingChatId);
+		expect(octokit.rest.issues.createComment).toHaveBeenCalled();
 	});
 
 	test("creates chat with workspace-id", async () => {
 		coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
 		coderClient.mockCreateChat.mockResolvedValue(mockChat);
+		mockOctokitCommentingHappyPath(octokit);
 
 		const workspaceId = "550e8400-e29b-41d4-a716-446655440000";
 		const inputs = createMockInputs({
@@ -296,6 +304,7 @@ describe("CoderAgentChatAction", () => {
 				workspace_id: workspaceId,
 			}),
 		);
+		expect(octokit.rest.issues.createComment).toHaveBeenCalled();
 	});
 
 	describe("commentOnIssue toggle", () => {
@@ -319,15 +328,33 @@ describe("CoderAgentChatAction", () => {
 			expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
 		});
 
+		test("does not comment when commentOnIssue is false (existing chat path)", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId: "990e8400-e29b-41d4-a716-446655440000",
+				commentOnIssue: false,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			await action.run();
+
+			expect(octokit.rest.issues.listComments).not.toHaveBeenCalled();
+			expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+		});
+
 		test("comments when commentOnIssue is true", async () => {
 			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-			octokit.rest.issues.listComments.mockResolvedValue({
-				data: [],
-			} as ReturnType<typeof octokit.rest.issues.listComments>);
-			octokit.rest.issues.createComment.mockResolvedValue(
-				{} as ReturnType<typeof octokit.rest.issues.createComment>,
-			);
+			mockOctokitCommentingHappyPath(octokit);
 
 			const inputs = createMockInputs({
 				githubUserID: 12345,
@@ -360,9 +387,28 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(action.run()).rejects.toThrow(
+			await expect(action.run()).rejects.toThrow(
 				"No Coder user found with GitHub user ID 12345",
 			);
+		});
+
+		test("throws error when sending message to existing chat fails", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockRejectedValue(
+				new Error("Chat not found"),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId: "990e8400-e29b-41d4-a716-446655440000",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			await expect(action.run()).rejects.toThrow("Chat not found");
 		});
 
 		test("throws error when chat creation fails", async () => {
@@ -378,7 +424,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(action.run()).rejects.toThrow("Failed to create chat");
+			await expect(action.run()).rejects.toThrow("Failed to create chat");
 		});
 	});
 });

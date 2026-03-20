@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type ActionInputs, ActionInputsSchema } from "./schemas";
+import {
+	type ActionInputs,
+	ActionInputsSchema,
+	ActionOutputsSchema,
+} from "./schemas";
 
 const actionInputValid: ActionInputs = {
 	coderURL: "https://coder.test",
@@ -161,5 +165,49 @@ describe("ActionInputsSchema", () => {
 			const input = { ...withoutGithubUserID, coderUsername: "" };
 			expect(() => ActionInputsSchema.parse(input)).toThrow();
 		});
+	});
+});
+
+describe("ActionOutputsSchema", () => {
+	test("accepts valid outputs", () => {
+		const result = ActionOutputsSchema.parse({
+			coderUsername: "testuser",
+			chatId: "550e8400-e29b-41d4-a716-446655440000",
+			chatUrl: "https://coder.test/chats/550e8400-e29b-41d4-a716-446655440000",
+			chatCreated: true,
+		});
+		expect(result.coderUsername).toBe("testuser");
+	});
+
+	test("rejects missing chatId", () => {
+		expect(() =>
+			ActionOutputsSchema.parse({
+				coderUsername: "testuser",
+				chatUrl: "https://coder.test/chats/abc",
+				chatCreated: true,
+			}),
+		).toThrow();
+	});
+
+	test("rejects invalid chatUrl", () => {
+		expect(() =>
+			ActionOutputsSchema.parse({
+				coderUsername: "testuser",
+				chatId: "550e8400-e29b-41d4-a716-446655440000",
+				chatUrl: "not-a-url",
+				chatCreated: true,
+			}),
+		).toThrow();
+	});
+
+	test("rejects non-boolean chatCreated", () => {
+		expect(() =>
+			ActionOutputsSchema.parse({
+				coderUsername: "testuser",
+				chatId: "550e8400-e29b-41d4-a716-446655440000",
+				chatUrl: "https://coder.test/chats/abc",
+				chatCreated: "yes",
+			}),
+		).toThrow();
 	});
 });
