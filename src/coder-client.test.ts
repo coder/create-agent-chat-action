@@ -96,6 +96,21 @@ describe("CoderClient", () => {
 			);
 		});
 
+		test("handles serverURL with trailing slash", async () => {
+			const clientWithSlash = new RealCoderClient(
+				"https://coder.test/",
+				"test-token",
+			);
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
+			await clientWithSlash.createChat({
+				content: [{ type: "text", text: "Test" }],
+			});
+			expect(mockFetch).toHaveBeenCalledWith(
+				"https://coder.test/api/experimental/chats",
+				expect.anything(),
+			);
+		});
+
 		test("creates chat with workspace_id", async () => {
 			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
 			const workspaceId = "550e8400-e29b-41d4-a716-446655440000";

@@ -18,12 +18,11 @@ export interface CoderClient {
 }
 
 export class RealCoderClient implements CoderClient {
+	private readonly serverURL: string;
 	private readonly headers: Record<string, string>;
 
-	constructor(
-		private readonly serverURL: string,
-		apiToken: string,
-	) {
+	constructor(serverURL: string, apiToken: string) {
+		this.serverURL = serverURL.replace(/\/+$/, "");
 		this.headers = {
 			"Coder-Session-Token": apiToken,
 			"Content-Type": "application/json",
