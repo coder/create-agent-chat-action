@@ -2,7 +2,6 @@ var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 function __accessProp(key) {
   return this[key];
@@ -29,23 +28,6 @@ var __toESM = (mod, isNodeMode, target) => {
     cache.set(mod, to);
   return to;
 };
-var __toCommonJS = (from) => {
-  var entry = (__moduleCache ??= new WeakMap).get(from), desc;
-  if (entry)
-    return entry;
-  entry = __defProp({}, "__esModule", { value: true });
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (var key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(entry, key))
-        __defProp(entry, key, {
-          get: __accessProp.bind(from, key),
-          enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
-        });
-  }
-  __moduleCache.set(from, entry);
-  return entry;
-};
-var __moduleCache;
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __returnValue = (v) => v;
 function __exportSetter(name, newValue) {
@@ -19128,7 +19110,7 @@ var require_before_after_hook = __commonJS((exports2, module2) => {
 // node_modules/@octokit/endpoint/dist-node/index.js
 var require_dist_node2 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -19139,16 +19121,16 @@ var require_dist_node2 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     endpoint: () => endpoint
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var import_universal_user_agent = require_dist_node();
   var VERSION = "9.0.6";
   var userAgent = `octokit-endpoint.js/${VERSION} ${(0, import_universal_user_agent.getUserAgent)()}`;
@@ -19542,7 +19524,7 @@ var require_once = __commonJS((exports2, module2) => {
 var require_dist_node4 = __commonJS((exports2, module2) => {
   var __create2 = Object.create;
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __getProtoOf2 = Object.getPrototypeOf;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
@@ -19554,17 +19536,17 @@ var require_dist_node4 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
   var __toESM2 = (mod, isNodeMode, target) => (target = mod != null ? __create2(__getProtoOf2(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp2(target, "default", { value: mod, enumerable: true }) : target, mod));
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     RequestError: () => RequestError
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var import_deprecation = require_dist_node3();
   var import_once = __toESM2(require_once());
   var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
@@ -19612,7 +19594,7 @@ var require_dist_node4 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/request/dist-node/index.js
 var require_dist_node5 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -19623,16 +19605,16 @@ var require_dist_node5 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     request: () => request
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var import_endpoint = require_dist_node2();
   var import_universal_user_agent = require_dist_node();
   var VERSION = "8.4.1";
@@ -19811,7 +19793,7 @@ var require_dist_node5 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/graphql/dist-node/index.js
 var require_dist_node6 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -19822,18 +19804,18 @@ var require_dist_node6 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var index_exports = {};
   __export2(index_exports, {
     GraphqlResponseError: () => GraphqlResponseError,
     graphql: () => graphql2,
     withCustomRequest: () => withCustomRequest
   });
-  module2.exports = __toCommonJS2(index_exports);
+  module2.exports = __toCommonJS(index_exports);
   var import_request3 = require_dist_node5();
   var import_universal_user_agent = require_dist_node();
   var VERSION = "7.1.1";
@@ -19935,7 +19917,7 @@ var require_dist_node6 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/auth-token/dist-node/index.js
 var require_dist_node7 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -19946,16 +19928,16 @@ var require_dist_node7 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     createTokenAuth: () => createTokenAuth
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var REGEX_IS_INSTALLATION_LEGACY = /^v1\./;
   var REGEX_IS_INSTALLATION = /^ghs_/;
   var REGEX_IS_USER_TO_SERVER = /^ghu_/;
@@ -19998,7 +19980,7 @@ var require_dist_node7 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/core/dist-node/index.js
 var require_dist_node8 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -20009,16 +19991,16 @@ var require_dist_node8 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var index_exports = {};
   __export2(index_exports, {
     Octokit: () => Octokit
   });
-  module2.exports = __toCommonJS2(index_exports);
+  module2.exports = __toCommonJS(index_exports);
   var import_universal_user_agent = require_dist_node();
   var import_before_after_hook = require_before_after_hook();
   var import_request = require_dist_node5();
@@ -20134,7 +20116,7 @@ var require_dist_node8 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/plugin-rest-endpoint-methods/dist-node/index.js
 var require_dist_node9 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -20145,17 +20127,17 @@ var require_dist_node9 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     legacyRestEndpointMethods: () => legacyRestEndpointMethods,
     restEndpointMethods: () => restEndpointMethods
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var VERSION = "10.4.1";
   var Endpoints = {
     actions: {
@@ -22271,7 +22253,7 @@ var require_dist_node9 = __commonJS((exports2, module2) => {
 // node_modules/@octokit/plugin-paginate-rest/dist-node/index.js
 var require_dist_node10 = __commonJS((exports2, module2) => {
   var __defProp2 = Object.defineProperty;
-  var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
   var __hasOwnProp2 = Object.prototype.hasOwnProperty;
   var __export2 = (target, all) => {
@@ -22282,11 +22264,11 @@ var require_dist_node10 = __commonJS((exports2, module2) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames2(from))
         if (!__hasOwnProp2.call(to, key) && key !== except)
-          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc2(from, key)) || desc.enumerable });
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
-  var __toCommonJS2 = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
   var dist_src_exports = {};
   __export2(dist_src_exports, {
     composePaginateRest: () => composePaginateRest,
@@ -22294,7 +22276,7 @@ var require_dist_node10 = __commonJS((exports2, module2) => {
     paginateRest: () => paginateRest,
     paginatingEndpoints: () => paginatingEndpoints
   });
-  module2.exports = __toCommonJS2(dist_src_exports);
+  module2.exports = __toCommonJS(dist_src_exports);
   var VERSION = "9.2.2";
   function normalizePaginatedListResponse(response) {
     if (!response.data) {
@@ -22744,12 +22726,7 @@ var require_github = __commonJS((exports2) => {
 });
 
 // src/index.ts
-var exports_src = {};
-__export(exports_src, {
-  setActionOutputs: () => setActionOutputs
-});
-module.exports = __toCommonJS(exports_src);
-var core2 = __toESM(require_core(), 1);
+var core3 = __toESM(require_core(), 1);
 var github = __toESM(require_github(), 1);
 
 // src/action.ts
@@ -22845,15 +22822,17 @@ class CoderAgentChatAction {
     if (this.inputs.coderUsername) {
       core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
       coderUsername = this.inputs.coderUsername;
-    } else {
+    } else if (this.inputs.githubUserID !== undefined) {
       core.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
       const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
       coderUsername = coderUser.username;
+    } else {
+      throw new Error("Cannot resolve Coder user: set either `github-user-id` or " + "`coder-username`. Auto-resolution from the workflow context " + "is tracked in S2.");
     }
     const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
     core.info(`GitHub owner: ${githubOrg}`);
     core.info(`GitHub repo: ${githubRepo}`);
-    core.info(`GitHub issue number: ${githubIssueNumber}`);
+    core.info(`GitHub item number: ${githubIssueNumber}`);
     core.info(`Coder username: ${coderUsername}`);
     if (this.inputs.existingChatId) {
       core.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
@@ -22872,7 +22851,7 @@ class CoderAgentChatAction {
       }
       const chatUrl2 = this.generateChatUrl(chatId);
       if (this.inputs.commentOnIssue) {
-        core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+        core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
         await this.commentOnIssue(chatUrl2, githubOrg, githubRepo, githubIssueNumber);
       }
       if (chat) {
@@ -22896,11 +22875,11 @@ class CoderAgentChatAction {
     const chatUrl = this.generateChatUrl(createdChat.id);
     core.info(`Chat URL: ${chatUrl}`);
     if (this.inputs.commentOnIssue) {
-      core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+      core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
       await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
       core.info("Comment posted successfully");
     } else {
-      core.info("Skipping comment on issue (commentOnIssue is false)");
+      core.info("Skipping comment (commentOnIssue is false)");
     }
     return this.buildOutputs(coderUsername, createdChat, true);
   }
@@ -27035,6 +27014,39 @@ class CoderAPIError extends Error {
   }
 }
 
+// src/outputs.ts
+var core2 = __toESM(require_core(), 1);
+var OUTPUT_MAP = [
+  { name: "coder-username", prop: "coderUsername", required: true },
+  { name: "chat-id", prop: "chatId", required: true },
+  { name: "chat-url", prop: "chatUrl", required: true },
+  { name: "chat-created", prop: "chatCreated", required: true },
+  { name: "chat-status", prop: "chatStatus" },
+  { name: "chat-title", prop: "chatTitle" },
+  { name: "workspace-id", prop: "workspaceId" },
+  { name: "pull-request-url", prop: "pullRequestUrl" },
+  { name: "pull-request-state", prop: "pullRequestState" },
+  { name: "pull-request-title", prop: "pullRequestTitle" },
+  { name: "pull-request-number", prop: "pullRequestNumber" },
+  { name: "additions", prop: "additions" },
+  { name: "deletions", prop: "deletions" },
+  { name: "changed-files", prop: "changedFiles" },
+  { name: "head-branch", prop: "headBranch" },
+  { name: "base-branch", prop: "baseBranch" },
+  { name: "chat-error-kind", prop: "chatErrorKind" },
+  { name: "chat-error-message", prop: "chatErrorMessage" }
+];
+function setActionOutputs(outputs) {
+  for (const { name, prop, required } of OUTPUT_MAP) {
+    const value = outputs[prop];
+    if (!required && value === undefined) {
+      continue;
+    }
+    const stringified = typeof value === "string" ? value : String(value ?? "");
+    core2.setOutput(name, stringified);
+  }
+}
+
 // src/schemas.ts
 var ActionInputsObjectSchema = exports_external.object({
   chatPrompt: exports_external.string().min(1),
@@ -27079,77 +27091,47 @@ var ActionOutputsSchema = exports_external.object({
 });
 
 // src/index.ts
-var OUTPUT_MAP = [
-  { name: "coder-username", prop: "coderUsername", required: true },
-  { name: "chat-id", prop: "chatId", required: true },
-  { name: "chat-url", prop: "chatUrl", required: true },
-  { name: "chat-created", prop: "chatCreated", required: true },
-  { name: "chat-status", prop: "chatStatus" },
-  { name: "chat-title", prop: "chatTitle" },
-  { name: "workspace-id", prop: "workspaceId" },
-  { name: "pull-request-url", prop: "pullRequestUrl" },
-  { name: "pull-request-state", prop: "pullRequestState" },
-  { name: "pull-request-title", prop: "pullRequestTitle" },
-  { name: "pull-request-number", prop: "pullRequestNumber" },
-  { name: "additions", prop: "additions" },
-  { name: "deletions", prop: "deletions" },
-  { name: "changed-files", prop: "changedFiles" },
-  { name: "head-branch", prop: "headBranch" },
-  { name: "base-branch", prop: "baseBranch" },
-  { name: "chat-error-kind", prop: "chatErrorKind" },
-  { name: "chat-error-message", prop: "chatErrorMessage" }
-];
-function setActionOutputs(outputs) {
-  for (const { name, prop, required } of OUTPUT_MAP) {
-    const value = outputs[prop];
-    if (!required && value === undefined) {
-      continue;
-    }
-    const stringified = typeof value === "string" ? value : String(value ?? "");
-    core2.setOutput(name, stringified);
-  }
-}
 async function main() {
   try {
-    const githubUserIdInput = core2.getInput("github-user-id");
+    const githubUserIdInput = core3.getInput("github-user-id");
     const githubUserID = githubUserIdInput ? Number.parseInt(githubUserIdInput, 10) : undefined;
     const inputs = ActionInputsSchema.parse({
-      coderURL: core2.getInput("coder-url", { required: true }),
-      coderToken: core2.getInput("coder-token", { required: true }),
-      chatPrompt: core2.getInput("chat-prompt", { required: true }),
-      coderOrganization: core2.getInput("coder-organization") || undefined,
-      githubURL: core2.getInput("github-url", { required: true }),
-      githubToken: core2.getInput("github-token", { required: true }),
+      coderURL: core3.getInput("coder-url", { required: true }),
+      coderToken: core3.getInput("coder-token", { required: true }),
+      chatPrompt: core3.getInput("chat-prompt", { required: true }),
+      coderOrganization: core3.getInput("coder-organization") || undefined,
+      githubURL: core3.getInput("github-url", { required: true }),
+      githubToken: core3.getInput("github-token", { required: true }),
       githubUserID,
-      coderUsername: core2.getInput("coder-username") || undefined,
-      workspaceId: core2.getInput("workspace-id") || undefined,
-      modelConfigId: core2.getInput("model-config-id") || undefined,
-      existingChatId: core2.getInput("existing-chat-id") || undefined,
-      commentOnIssue: core2.getBooleanInput("comment-on-issue"),
-      wait: core2.getInput("wait") || undefined,
-      waitTimeoutSeconds: core2.getInput("wait-timeout-seconds") || undefined,
-      idempotencyLabelKey: core2.getInput("idempotency-label-key") || undefined
+      coderUsername: core3.getInput("coder-username") || undefined,
+      workspaceId: core3.getInput("workspace-id") || undefined,
+      modelConfigId: core3.getInput("model-config-id") || undefined,
+      existingChatId: core3.getInput("existing-chat-id") || undefined,
+      commentOnIssue: core3.getBooleanInput("comment-on-issue"),
+      wait: core3.getInput("wait") || undefined,
+      waitTimeoutSeconds: core3.getInput("wait-timeout-seconds") || undefined,
+      idempotencyLabelKey: core3.getInput("idempotency-label-key") || undefined
     });
-    core2.debug("Inputs validated successfully");
-    core2.debug(`Coder URL: ${inputs.coderURL}`);
-    core2.debug(`Organization: ${inputs.coderOrganization}`);
+    core3.debug("Inputs validated successfully");
+    core3.debug(`Coder URL: ${inputs.coderURL}`);
+    core3.debug(`Organization: ${inputs.coderOrganization}`);
     const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
     const octokit = github.getOctokit(inputs.githubToken);
-    core2.debug("Clients initialized");
+    core3.debug("Clients initialized");
     const action = new CoderAgentChatAction(coder, octokit, inputs);
     const outputs = await action.run();
     setActionOutputs(outputs);
-    core2.debug("Action completed successfully");
-    core2.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
+    core3.debug("Action completed successfully");
+    core3.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
   } catch (error2) {
     if (error2 instanceof Error) {
-      core2.setFailed(error2.message);
+      core3.setFailed(error2.message);
       console.error("Action failed:", error2);
       if (error2.stack) {
         console.error("Stack trace:", error2.stack);
       }
     } else {
-      core2.setFailed("Unknown error occurred");
+      core3.setFailed("Unknown error occurred");
       console.error("Unknown error:", error2);
     }
     process.exit(1);
