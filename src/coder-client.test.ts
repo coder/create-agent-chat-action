@@ -58,7 +58,7 @@ describe("CoderClient", () => {
 			).rejects.toThrow(CoderAPIError);
 		});
 
-		test("sends status:active filter in the query string", async () => {
+		test("sends only the github_com_user_id filter (no status filter)", async () => {
 			mockFetch.mockResolvedValue(createMockResponse(mockUserList));
 			await client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0);
 			const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
@@ -66,7 +66,11 @@ describe("CoderClient", () => {
 			expect(rawQuery).toContain(
 				`github_com_user_id:${mockUser.github_com_user_id}`,
 			);
-			expect(rawQuery).toContain("status:active");
+			// `status:` would over-filter (excludes dormant/suspended users with
+			// valid GitHub links). coderd's GetUsers query already drops
+			// soft-deleted rows; we rely on that and the client-side `deleted`
+			// guard, never on `status:`.
+			expect(rawQuery).not.toContain("status:");
 		});
 
 		test("returns the live user when a soft-deleted user shares the github id", async () => {
@@ -80,6 +84,16 @@ describe("CoderClient", () => {
 			mockFetch.mockResolvedValue(
 				createMockResponse({ users: [deletedUser, liveUser] }),
 			);
+			const result = await client.getCoderUserByGitHubId(
+				mockUser.github_com_user_id ?? 0,
+			);
+			expect(result.id).toBe(liveUser.id);
+			expect(result.username).toBe(liveUser.username);
+		});
+
+		test("keeps a user with explicit deleted: false (locks in three-state semantics)", async () => {
+			const liveUser = { ...mockUser, deleted: false };
+			mockFetch.mockResolvedValue(createMockResponse({ users: [liveUser] }));
 			const result = await client.getCoderUserByGitHubId(
 				mockUser.github_com_user_id ?? 0,
 			);

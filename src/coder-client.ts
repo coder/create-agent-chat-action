@@ -68,13 +68,13 @@ export class RealCoderClient implements CoderClient {
 		if (githubUserId === 0) {
 			throw "GitHub user ID cannot be 0";
 		}
-		// Filter rule: send `github_com_user_id:<id> status:active` and apply
-		// the same filter client-side as defense in depth. coderd's GetUsers
-		// already drops `deleted = true` rows server-side, but soft-deleted
-		// users that retain a `github_com_user_id` (create-task-action#8) have
-		// historically slipped through, so we also reject any row tagged
-		// `deleted: true` after parsing the response.
-		const filter = `github_com_user_id:${githubUserId} status:active`;
+		// Defense in depth: coderd's GetUsers query hardcodes
+		// `users.deleted = false`, so the response should never include a
+		// soft-deleted row, and `codersdk.User` does not currently serialize
+		// the `deleted` flag at all. If a future schema change starts
+		// exposing it, this filter drops those rows without further code
+		// changes; today it is a no-op for every response shape we see.
+		const filter = `github_com_user_id:${githubUserId}`;
 		const endpoint = `/api/v2/users?q=${encodeURIComponent(filter)}`;
 		const response = await this.request<unknown[]>(endpoint);
 		const userList = CoderSDKGetUsersResponseSchema.parse(response);
@@ -137,10 +137,11 @@ export class RealCoderClient implements CoderClient {
 export const ChatIdSchema = z.string().uuid().brand("ChatId");
 export type ChatId = z.infer<typeof ChatIdSchema>;
 
-// User schemas (same as create-task-action). `deleted` is parsed leniently
-// because the public Coder API does not always include it in the JSON
-// response; when present it is the soft-delete flag we use to filter rows
-// out of the GitHub-id lookup.
+// User schemas (derived from create-task-action; this action additionally
+// parses an optional `deleted` flag for the soft-deleted-user filter in
+// `getCoderUserByGitHubId`. `codersdk.User` does not currently serialize
+// `deleted`, so the field is `undefined` in practice; it is declared so
+// that future API changes are picked up without further code changes.
 export const CoderSDKUserSchema = z.object({
 	id: z.string().uuid(),
 	username: z.string(),
@@ -246,17 +247,19 @@ export type CreateChatMessageResponse = z.infer<
 	typeof CreateChatMessageResponseSchema
 >;
 
-// ChatErrorKind values mirror the `chat-error-kind` action output enum
-// established in S1 and the failure-comment slice (S5). Only the values
-// that this client raises are listed here; the action layer adds others
-// when it maps API responses to outputs.
-export type ChatErrorKind =
-	| "user_not_found"
-	| "user_ambiguous"
-	| "org_not_found"
-	| "spend_exceeded"
-	| "api_error"
-	| "timeout";
+// Full enum for the `chat-error-kind` action output. This client raises
+// `user_not_found` and `user_ambiguous`; the remaining values are
+// reserved for the failure-comment slice (S5), which maps API errors to
+// the same enum.
+export const ChatErrorKindSchema = z.enum([
+	"user_not_found",
+	"user_ambiguous",
+	"org_not_found",
+	"spend_exceeded",
+	"api_error",
+	"timeout",
+]);
+export type ChatErrorKind = z.infer<typeof ChatErrorKindSchema>;
 
 // CoderAPIError
 export class CoderAPIError extends Error {
