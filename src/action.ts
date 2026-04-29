@@ -163,7 +163,7 @@ export class CoderAgentChatAction {
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
 			coderUsername = this.inputs.coderUsername;
-		} else {
+		} else if (this.inputs.githubUserID !== undefined) {
 			core.info(
 				`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`,
 			);
@@ -171,12 +171,23 @@ export class CoderAgentChatAction {
 				this.inputs.githubUserID,
 			);
 			coderUsername = coderUser.username;
+		} else {
+			// The schema permits both identity inputs to be unset so S2 can
+			// auto-resolve from `github.context`. Until S2 lands, fail with a
+			// message that names both inputs and the slice that wires the
+			// fallback rather than crashing inside the user lookup with a
+			// misleading "GitHub user ID cannot be undefined" error.
+			throw new Error(
+				"Cannot resolve Coder user: set either `github-user-id` or " +
+					"`coder-username`. Auto-resolution from the workflow context " +
+					"is tracked in S2.",
+			);
 		}
 
 		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
 		core.info(`GitHub owner: ${githubOrg}`);
 		core.info(`GitHub repo: ${githubRepo}`);
-		core.info(`GitHub issue number: ${githubIssueNumber}`);
+		core.info(`GitHub item number: ${githubIssueNumber}`);
 		core.info(`Coder username: ${coderUsername}`);
 
 		// If an existing chat ID is provided, send a message to it
@@ -211,7 +222,7 @@ export class CoderAgentChatAction {
 
 			if (this.inputs.commentOnIssue) {
 				core.info(
-					`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+					`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 				);
 				await this.commentOnIssue(
 					chatUrl,
@@ -250,7 +261,7 @@ export class CoderAgentChatAction {
 
 		if (this.inputs.commentOnIssue) {
 			core.info(
-				`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+				`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 			);
 			await this.commentOnIssue(
 				chatUrl,
@@ -260,7 +271,7 @@ export class CoderAgentChatAction {
 			);
 			core.info("Comment posted successfully");
 		} else {
-			core.info("Skipping comment on issue (commentOnIssue is false)");
+			core.info("Skipping comment (commentOnIssue is false)");
 		}
 
 		return this.buildOutputs(coderUsername, createdChat, true);

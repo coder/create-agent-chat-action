@@ -2,51 +2,8 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { CoderAgentChatAction } from "./action";
 import { RealCoderClient } from "./coder-client";
+import { setActionOutputs } from "./outputs";
 import { ActionInputsSchema } from "./schemas";
-import type { ActionOutputs } from "./schemas";
-
-// OUTPUT_MAP declares how each ActionOutputs property maps to its action.yaml
-// output name. The first entry is required (chat-* / coder-username always set);
-// subsequent entries are optional and emitted only when defined. Keeping the
-// list data-driven prevents drift between property names and YAML output names
-// that a 13-block conditional chain hides.
-const OUTPUT_MAP: ReadonlyArray<{
-	name: string;
-	prop: keyof ActionOutputs;
-	required?: boolean;
-}> = [
-	{ name: "coder-username", prop: "coderUsername", required: true },
-	{ name: "chat-id", prop: "chatId", required: true },
-	{ name: "chat-url", prop: "chatUrl", required: true },
-	{ name: "chat-created", prop: "chatCreated", required: true },
-	{ name: "chat-status", prop: "chatStatus" },
-	{ name: "chat-title", prop: "chatTitle" },
-	{ name: "workspace-id", prop: "workspaceId" },
-	{ name: "pull-request-url", prop: "pullRequestUrl" },
-	{ name: "pull-request-state", prop: "pullRequestState" },
-	{ name: "pull-request-title", prop: "pullRequestTitle" },
-	{ name: "pull-request-number", prop: "pullRequestNumber" },
-	{ name: "additions", prop: "additions" },
-	{ name: "deletions", prop: "deletions" },
-	{ name: "changed-files", prop: "changedFiles" },
-	{ name: "head-branch", prop: "headBranch" },
-	{ name: "base-branch", prop: "baseBranch" },
-	{ name: "chat-error-kind", prop: "chatErrorKind" },
-	{ name: "chat-error-message", prop: "chatErrorMessage" },
-];
-
-export function setActionOutputs(outputs: ActionOutputs): void {
-	for (const { name, prop, required } of OUTPUT_MAP) {
-		const value = outputs[prop];
-		if (!required && value === undefined) {
-			continue;
-		}
-		// `core.setOutput` stringifies values internally, but numbers stringify
-		// to NaN-prone shapes in some contexts; coerce explicitly.
-		const stringified = typeof value === "string" ? value : String(value ?? "");
-		core.setOutput(name, stringified);
-	}
-}
 
 async function main() {
 	try {

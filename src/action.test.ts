@@ -564,6 +564,30 @@ describe("CoderAgentChatAction", () => {
 		});
 	});
 
+	describe("identity resolution", () => {
+		test("throws when neither github-user-id nor coder-username is set", async () => {
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			// The schema permits both unset (S2 will auto-resolve from
+			// github.context). Until S2 lands, action.run must fail with a
+			// clear message instead of calling the user lookup with
+			// undefined.
+			expect(action.run()).rejects.toThrow(
+				/set either `github-user-id` or `coder-username`/,
+			);
+			expect(action.run()).rejects.toThrow(/tracked in S2/i);
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("Error Scenarios", () => {
 		test("throws error when Coder user not found", async () => {
 			coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
