@@ -138,10 +138,11 @@ export const ChatIdSchema = z.string().uuid().brand("ChatId");
 export type ChatId = z.infer<typeof ChatIdSchema>;
 
 // User schemas (derived from create-task-action; this action additionally
-// parses an optional `deleted` flag for the soft-deleted-user filter in
-// `getCoderUserByGitHubId`. `codersdk.User` does not currently serialize
-// `deleted`, so the field is `undefined` in practice; it is declared so
-// that future API changes are picked up without further code changes.
+// parses an optional `deleted` flag for the deleted-user filter in
+// `getCoderUserByGitHubId`). `codersdk.User` does not currently serialize
+// `deleted`, so the field is `undefined` in practice; it is declared
+// so that future API changes are picked up without further code
+// changes.
 export const CoderSDKUserSchema = z.object({
 	id: z.string().uuid(),
 	username: z.string(),

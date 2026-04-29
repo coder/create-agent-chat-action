@@ -7,7 +7,7 @@ This GitHub action creates a [Coder Agent Chat](https://coder.com/docs/ai-coder)
 - Pass a `chat-prompt` and a `github-url` (issue or PR) and the action creates a Coder Agent Chat associated with that GitHub item.
 - The action resolves the Coder user to run as. Either pass `github-user-id` (the action looks up the Coder user with that linked GitHub identity) or pass `coder-username` directly. The two inputs are mutually exclusive.
   - GitHub-id lookup requires the Coder deployment to be configured with [GitHub OAuth](https://coder.com/docs/admin/external-auth#configure-a-github-oauth-app) and for the Coder user to have linked their GitHub account.
-  - Soft-deleted Coder users are automatically excluded from the GitHub-id lookup, so a previously deleted account no longer causes an ambiguous-match error (closes [coder/create-task-action#8](https://github.com/coder/create-task-action/issues/8) for this action; the bug stays open in `create-task-action`).
+  - Deleted Coder users are automatically excluded from the GitHub-id lookup, so a previously deleted account no longer causes an ambiguous-match error (closes [coder/create-task-action#8](https://github.com/coder/create-task-action/issues/8) for this action; the bug stays open in `create-task-action`).
 - Unlike Tasks, **Agents does not require specifying a template**. Agents auto-provisions a workspace, or you can pass an existing `workspace-id`.
 - After creation, the action posts a comment on the linked issue or pull request with the chat URL. Disable with `comment-on-issue: false`.
 - Send a follow-up message to an existing chat by providing `existing-chat-id`.
@@ -90,7 +90,7 @@ jobs:
 | coder-url             | Coder deployment URL.                                                                                                                                                                    | true     | -       |
 | github-url            | GitHub issue or pull request URL to link the chat to. Used for the issue/PR comment and as the human-readable association in the chat label.                                             | true     | -       |
 | github-token          | GitHub token used to post and update issue comments.                                                                                                                                     | true     | -       |
-| github-user-id        | GitHub user ID to resolve to a Coder user. Soft-deleted Coder users are filtered out. Mutually exclusive with coder-username.                                                            | false    | -       |
+| github-user-id        | GitHub user ID to resolve to a Coder user. Deleted Coder users are filtered out. Mutually exclusive with coder-username.                                                                | false    | -       |
 | coder-username        | Coder username to use directly. Mutually exclusive with github-user-id; useful for service-account workflows.                                                                            | false    | -       |
 | coder-organization    | Coder organization name. Reserved; not yet wired through to chat creation, the action emits a warning if set.                                                                            | false    | -       |
 | workspace-id          | Existing workspace ID to pin the chat to. If unset, Agents auto-provisions a workspace.                                                                                                  | false    | -       |
