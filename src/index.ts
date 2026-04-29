@@ -15,10 +15,8 @@ async function main() {
 			coderURL: core.getInput("coder-url", { required: true }),
 			coderToken: core.getInput("coder-token", { required: true }),
 			chatPrompt: core.getInput("chat-prompt", { required: true }),
-			coderOrganization: core.getInput("coder-organization", {
-				required: true,
-			}),
-			githubIssueURL: core.getInput("github-issue-url", { required: true }),
+			coderOrganization: core.getInput("coder-organization") || undefined,
+			githubURL: core.getInput("github-url", { required: true }),
 			githubToken: core.getInput("github-token", { required: true }),
 			githubUserID,
 			coderUsername: core.getInput("coder-username") || undefined,
@@ -26,6 +24,9 @@ async function main() {
 			modelConfigId: core.getInput("model-config-id") || undefined,
 			existingChatId: core.getInput("existing-chat-id") || undefined,
 			commentOnIssue: core.getBooleanInput("comment-on-issue"),
+			wait: core.getInput("wait") || undefined,
+			waitTimeoutSeconds: core.getInput("wait-timeout-seconds") || undefined,
+			idempotencyLabelKey: core.getInput("idempotency-label-key") || undefined,
 		});
 
 		core.debug("Inputs validated successfully");
@@ -44,6 +45,51 @@ async function main() {
 		core.setOutput("chat-id", outputs.chatId);
 		core.setOutput("chat-url", outputs.chatUrl);
 		core.setOutput("chat-created", outputs.chatCreated.toString());
+		if (outputs.chatStatus !== undefined) {
+			core.setOutput("chat-status", outputs.chatStatus);
+		}
+		if (outputs.chatTitle !== undefined) {
+			core.setOutput("chat-title", outputs.chatTitle);
+		}
+		if (outputs.workspaceId !== undefined) {
+			core.setOutput("workspace-id", outputs.workspaceId);
+		}
+		if (outputs.pullRequestUrl !== undefined) {
+			core.setOutput("pull-request-url", outputs.pullRequestUrl);
+		}
+		if (outputs.pullRequestState !== undefined) {
+			core.setOutput("pull-request-state", outputs.pullRequestState);
+		}
+		if (outputs.pullRequestTitle !== undefined) {
+			core.setOutput("pull-request-title", outputs.pullRequestTitle);
+		}
+		if (outputs.pullRequestNumber !== undefined) {
+			core.setOutput(
+				"pull-request-number",
+				outputs.pullRequestNumber.toString(),
+			);
+		}
+		if (outputs.additions !== undefined) {
+			core.setOutput("additions", outputs.additions.toString());
+		}
+		if (outputs.deletions !== undefined) {
+			core.setOutput("deletions", outputs.deletions.toString());
+		}
+		if (outputs.changedFiles !== undefined) {
+			core.setOutput("changed-files", outputs.changedFiles.toString());
+		}
+		if (outputs.headBranch !== undefined) {
+			core.setOutput("head-branch", outputs.headBranch);
+		}
+		if (outputs.baseBranch !== undefined) {
+			core.setOutput("base-branch", outputs.baseBranch);
+		}
+		if (outputs.chatErrorKind !== undefined) {
+			core.setOutput("chat-error-kind", outputs.chatErrorKind);
+		}
+		if (outputs.chatErrorMessage !== undefined) {
+			core.setOutput("chat-error-message", outputs.chatErrorMessage);
+		}
 
 		core.debug("Action completed successfully");
 		core.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);

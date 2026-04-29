@@ -1,5 +1,10 @@
 import * as core from "@actions/core";
-import type { CreateChatRequest, CoderClient, ChatId } from "./coder-client";
+import type {
+	CreateChatRequest,
+	CoderClient,
+	CoderChat,
+	ChatId,
+} from "./coder-client";
 import type { ActionInputs, ActionOutputs } from "./schemas";
 import type { getOctokit } from "@actions/github";
 
@@ -20,15 +25,15 @@ export class CoderAgentChatAction {
 		githubRepo: string;
 		githubIssueNumber: number;
 	} {
-		if (!this.inputs.githubIssueURL) {
+		if (!this.inputs.githubURL) {
 			throw new Error("Missing issue URL");
 		}
 
-		const match = this.inputs.githubIssueURL.match(
+		const match = this.inputs.githubURL.match(
 			/([^/]+)\/([^/]+)\/issues\/(\d+)/,
 		);
 		if (!match) {
-			throw new Error(`Invalid issue URL: ${this.inputs.githubIssueURL}`);
+			throw new Error(`Invalid issue URL: ${this.inputs.githubURL}`);
 		}
 		return {
 			githubOrg: match[1],
@@ -87,6 +92,37 @@ export class CoderAgentChatAction {
 		} catch (error) {
 			core.error(`Failed to comment on issue: ${error}`);
 		}
+	}
+
+	/**
+	 * Build a rich ActionOutputs from a Chat response. Cherry-picked from
+	 * the discarded PR #1; populates v0 outputs from data the chats API
+	 * already returns.
+	 */
+	buildOutputs(
+		coderUsername: string,
+		chat: CoderChat,
+		chatCreated: boolean,
+	): ActionOutputs {
+		const diff = chat.diff_status;
+		return {
+			coderUsername,
+			chatId: chat.id,
+			chatUrl: this.generateChatUrl(chat.id),
+			chatCreated,
+			chatStatus: chat.status,
+			chatTitle: chat.title,
+			workspaceId: chat.workspace_id ?? undefined,
+			pullRequestUrl: diff?.url ?? undefined,
+			pullRequestState: diff?.pull_request_state ?? undefined,
+			pullRequestTitle: diff?.pull_request_title || undefined,
+			pullRequestNumber: diff?.pr_number ?? undefined,
+			additions: diff?.additions,
+			deletions: diff?.deletions,
+			changedFiles: diff?.changed_files,
+			headBranch: diff?.head_branch ?? undefined,
+			baseBranch: diff?.base_branch ?? undefined,
+		};
 	}
 
 	/**
@@ -180,11 +216,6 @@ export class CoderAgentChatAction {
 			core.info("Skipping comment on issue (commentOnIssue is false)");
 		}
 
-		return {
-			coderUsername,
-			chatId: createdChat.id,
-			chatUrl,
-			chatCreated: true,
-		};
+		return this.buildOutputs(coderUsername, createdChat, true);
 	}
 }

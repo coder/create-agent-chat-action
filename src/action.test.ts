@@ -23,7 +23,7 @@ describe("CoderAgentChatAction", () => {
 	describe("parseGithubIssueUrl", () => {
 		test("parses valid GitHub issue URL", () => {
 			const inputs = createMockInputs({
-				githubIssueURL: "https://github.com/owner/repo/issues/123",
+				githubURL: "https://github.com/owner/repo/issues/123",
 			});
 			const action = new CoderAgentChatAction(
 				coderClient,
@@ -41,7 +41,7 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("throws when no issue URL provided", () => {
-			const inputs = createMockInputs({ githubIssueURL: undefined });
+			const inputs = createMockInputs({ githubURL: undefined });
 			const action = new CoderAgentChatAction(
 				coderClient,
 				octokit as unknown as Octokit,
@@ -54,7 +54,7 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("throws for invalid URL format", () => {
-			const inputs = createMockInputs({ githubIssueURL: "not-a-url" });
+			const inputs = createMockInputs({ githubURL: "not-a-url" });
 			const action = new CoderAgentChatAction(
 				coderClient,
 				octokit as unknown as Octokit,
@@ -68,7 +68,7 @@ describe("CoderAgentChatAction", () => {
 
 		test("handles non-github.com URL", () => {
 			const inputs = createMockInputs({
-				githubIssueURL: "https://code.acme.com/owner/repo/issues/123",
+				githubURL: "https://code.acme.com/owner/repo/issues/123",
 			});
 			const action = new CoderAgentChatAction(
 				coderClient,
@@ -331,7 +331,7 @@ describe("CoderAgentChatAction", () => {
 
 			const inputs = createMockInputs({
 				githubUserID: 12345,
-				githubIssueURL: "https://github.com/owner/repo/issues/123",
+				githubURL: "https://github.com/owner/repo/issues/123",
 				commentOnIssue: true,
 			});
 			const action = new CoderAgentChatAction(

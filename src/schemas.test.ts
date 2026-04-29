@@ -314,9 +314,7 @@ describe("ActionOutputsSchema", () => {
 		expect(result.chatStatus).toBe("completed");
 		expect(result.chatTitle).toBe("Fix issue");
 		expect(result.workspaceId).toBe("aa0e8400-e29b-41d4-a716-446655440000");
-		expect(result.pullRequestUrl).toBe(
-			"https://github.com/owner/repo/pull/42",
-		);
+		expect(result.pullRequestUrl).toBe("https://github.com/owner/repo/pull/42");
 		expect(result.pullRequestState).toBe("open");
 		expect(result.pullRequestTitle).toBe("Fix issue #123");
 		expect(result.pullRequestNumber).toBe(42);

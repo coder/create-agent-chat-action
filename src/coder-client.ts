@@ -153,15 +153,47 @@ export const ChatStatusSchema = z.enum([
 ]);
 export type ChatStatus = z.infer<typeof ChatStatusSchema>;
 
-// Chat schema
+// ChatDiffStatusSchema describes the PR/branch metadata Agents tracks for
+// a chat. Cherry-picked from the discarded PR #1 schema; the runtime
+// behavior that consumes it lands in later slices.
+export const ChatDiffStatusSchema = z.object({
+	chat_id: z.string().uuid(),
+	url: z.string().nullable().optional(),
+	pull_request_state: z.string().nullable().optional(),
+	pull_request_title: z.string().default(""),
+	pull_request_draft: z.boolean().default(false),
+	changes_requested: z.boolean().default(false),
+	additions: z.number().default(0),
+	deletions: z.number().default(0),
+	changed_files: z.number().default(0),
+	author_login: z.string().nullable().optional(),
+	author_avatar_url: z.string().nullable().optional(),
+	base_branch: z.string().nullable().optional(),
+	head_branch: z.string().nullable().optional(),
+	pr_number: z.number().nullable().optional(),
+	commits: z.number().nullable().optional(),
+	approved: z.boolean().nullable().optional(),
+	reviewer_count: z.number().nullable().optional(),
+	refreshed_at: z.string().nullable().optional(),
+	stale_at: z.string().nullable().optional(),
+});
+export type ChatDiffStatus = z.infer<typeof ChatDiffStatusSchema>;
+
+// Chat schema describes the full chat object returned by the API.
 export const CoderChatSchema = z.object({
 	id: ChatIdSchema,
 	owner_id: z.string().uuid(),
 	workspace_id: z.string().uuid().nullable().optional(),
+	parent_chat_id: z.string().uuid().nullable().optional(),
+	root_chat_id: z.string().uuid().nullable().optional(),
+	last_model_config_id: z.string().uuid().optional(),
 	title: z.string(),
 	status: ChatStatusSchema,
+	last_error: z.string().nullable().optional(),
+	diff_status: ChatDiffStatusSchema.nullable().optional(),
 	created_at: z.string(),
 	updated_at: z.string(),
+	archived: z.boolean().optional(),
 });
 export type CoderChat = z.infer<typeof CoderChatSchema>;
 
