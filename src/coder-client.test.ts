@@ -54,6 +54,75 @@ describe("CoderClient", () => {
 			).rejects.toThrow(CoderAPIError);
 		});
 
+		test("sends status:active filter in the query string", async () => {
+			mockFetch.mockResolvedValue(createMockResponse(mockUserList));
+			await client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0);
+			const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
+			const rawQuery = decodeURIComponent(calledUrl.split("?q=")[1] ?? "");
+			expect(rawQuery).toContain(`github_com_user_id:${mockUser.github_com_user_id}`);
+			expect(rawQuery).toContain("status:active");
+		});
+
+		test("returns the live user when a soft-deleted user shares the github id", async () => {
+			const liveUser = { ...mockUser };
+			const deletedUser = {
+				...mockUser,
+				id: "770e8400-e29b-41d4-a716-446655440002",
+				username: "olddeleteduser",
+				deleted: true,
+			};
+			mockFetch.mockResolvedValue(
+				createMockResponse({ users: [deletedUser, liveUser] }),
+			);
+			const result = await client.getCoderUserByGitHubId(
+				mockUser.github_com_user_id ?? 0,
+			);
+			expect(result.id).toBe(liveUser.id);
+			expect(result.username).toBe(liveUser.username);
+		});
+
+		test("errors with user_ambiguous kind when two live users share the github id", async () => {
+			mockFetch.mockResolvedValue(createMockResponse(mockUserListDuplicate));
+			let caught: unknown;
+			try {
+				await client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0);
+			} catch (err) {
+				caught = err;
+			}
+			expect(caught).toBeInstanceOf(CoderAPIError);
+			expect((caught as CoderAPIError).kind).toBe("user_ambiguous");
+		});
+
+		test("errors with user_not_found kind when all matching users are soft-deleted", async () => {
+			const deletedUser = {
+				...mockUser,
+				id: "770e8400-e29b-41d4-a716-446655440003",
+				username: "olddeleteduser",
+				deleted: true,
+			};
+			mockFetch.mockResolvedValue(createMockResponse({ users: [deletedUser] }));
+			let caught: unknown;
+			try {
+				await client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0);
+			} catch (err) {
+				caught = err;
+			}
+			expect(caught).toBeInstanceOf(CoderAPIError);
+			expect((caught as CoderAPIError).kind).toBe("user_not_found");
+		});
+
+		test("errors with user_not_found kind when the response is empty", async () => {
+			mockFetch.mockResolvedValue(createMockResponse(mockUserListEmpty));
+			let caught: unknown;
+			try {
+				await client.getCoderUserByGitHubId(mockUser.github_com_user_id ?? 0);
+			} catch (err) {
+				caught = err;
+			}
+			expect(caught).toBeInstanceOf(CoderAPIError);
+			expect((caught as CoderAPIError).kind).toBe("user_not_found");
+		});
+
 		test("throws on 401 unauthorized", async () => {
 			mockFetch.mockResolvedValue(
 				createMockResponse(
