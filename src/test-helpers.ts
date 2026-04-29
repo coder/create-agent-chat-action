@@ -57,6 +57,32 @@ export const mockChat: CoderChat = {
 	archived: false,
 };
 
+export const mockChatWithDiff: CoderChat = {
+	...mockChat,
+	status: "completed",
+	diff_status: {
+		chat_id: "990e8400-e29b-41d4-a716-446655440000",
+		url: "https://github.com/test-org/test-repo/pull/42",
+		pull_request_state: "open",
+		pull_request_title: "Fix issue #123",
+		pull_request_draft: false,
+		changes_requested: false,
+		additions: 50,
+		deletions: 10,
+		changed_files: 3,
+		author_login: "testuser",
+		author_avatar_url: null,
+		base_branch: "main",
+		head_branch: "fix/issue-123",
+		pr_number: 42,
+		commits: 2,
+		approved: false,
+		reviewer_count: 0,
+		refreshed_at: "2024-01-01T01:00:00Z",
+		stale_at: null,
+	},
+};
+
 export const mockChatMessageResponse: CreateChatMessageResponse = {
 	queued: false,
 };

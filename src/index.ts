@@ -3,6 +3,50 @@ import * as github from "@actions/github";
 import { CoderAgentChatAction } from "./action";
 import { RealCoderClient } from "./coder-client";
 import { ActionInputsSchema } from "./schemas";
+import type { ActionOutputs } from "./schemas";
+
+// OUTPUT_MAP declares how each ActionOutputs property maps to its action.yaml
+// output name. The first entry is required (chat-* / coder-username always set);
+// subsequent entries are optional and emitted only when defined. Keeping the
+// list data-driven prevents drift between property names and YAML output names
+// that a 13-block conditional chain hides.
+const OUTPUT_MAP: ReadonlyArray<{
+	name: string;
+	prop: keyof ActionOutputs;
+	required?: boolean;
+}> = [
+	{ name: "coder-username", prop: "coderUsername", required: true },
+	{ name: "chat-id", prop: "chatId", required: true },
+	{ name: "chat-url", prop: "chatUrl", required: true },
+	{ name: "chat-created", prop: "chatCreated", required: true },
+	{ name: "chat-status", prop: "chatStatus" },
+	{ name: "chat-title", prop: "chatTitle" },
+	{ name: "workspace-id", prop: "workspaceId" },
+	{ name: "pull-request-url", prop: "pullRequestUrl" },
+	{ name: "pull-request-state", prop: "pullRequestState" },
+	{ name: "pull-request-title", prop: "pullRequestTitle" },
+	{ name: "pull-request-number", prop: "pullRequestNumber" },
+	{ name: "additions", prop: "additions" },
+	{ name: "deletions", prop: "deletions" },
+	{ name: "changed-files", prop: "changedFiles" },
+	{ name: "head-branch", prop: "headBranch" },
+	{ name: "base-branch", prop: "baseBranch" },
+	{ name: "chat-error-kind", prop: "chatErrorKind" },
+	{ name: "chat-error-message", prop: "chatErrorMessage" },
+];
+
+export function setActionOutputs(outputs: ActionOutputs): void {
+	for (const { name, prop, required } of OUTPUT_MAP) {
+		const value = outputs[prop];
+		if (!required && value === undefined) {
+			continue;
+		}
+		// `core.setOutput` stringifies values internally, but numbers stringify
+		// to NaN-prone shapes in some contexts; coerce explicitly.
+		const stringified = typeof value === "string" ? value : String(value ?? "");
+		core.setOutput(name, stringified);
+	}
+}
 
 async function main() {
 	try {
@@ -41,55 +85,7 @@ async function main() {
 		const action = new CoderAgentChatAction(coder, octokit, inputs);
 		const outputs = await action.run();
 
-		core.setOutput("coder-username", outputs.coderUsername);
-		core.setOutput("chat-id", outputs.chatId);
-		core.setOutput("chat-url", outputs.chatUrl);
-		core.setOutput("chat-created", outputs.chatCreated.toString());
-		if (outputs.chatStatus !== undefined) {
-			core.setOutput("chat-status", outputs.chatStatus);
-		}
-		if (outputs.chatTitle !== undefined) {
-			core.setOutput("chat-title", outputs.chatTitle);
-		}
-		if (outputs.workspaceId !== undefined) {
-			core.setOutput("workspace-id", outputs.workspaceId);
-		}
-		if (outputs.pullRequestUrl !== undefined) {
-			core.setOutput("pull-request-url", outputs.pullRequestUrl);
-		}
-		if (outputs.pullRequestState !== undefined) {
-			core.setOutput("pull-request-state", outputs.pullRequestState);
-		}
-		if (outputs.pullRequestTitle !== undefined) {
-			core.setOutput("pull-request-title", outputs.pullRequestTitle);
-		}
-		if (outputs.pullRequestNumber !== undefined) {
-			core.setOutput(
-				"pull-request-number",
-				outputs.pullRequestNumber.toString(),
-			);
-		}
-		if (outputs.additions !== undefined) {
-			core.setOutput("additions", outputs.additions.toString());
-		}
-		if (outputs.deletions !== undefined) {
-			core.setOutput("deletions", outputs.deletions.toString());
-		}
-		if (outputs.changedFiles !== undefined) {
-			core.setOutput("changed-files", outputs.changedFiles.toString());
-		}
-		if (outputs.headBranch !== undefined) {
-			core.setOutput("head-branch", outputs.headBranch);
-		}
-		if (outputs.baseBranch !== undefined) {
-			core.setOutput("base-branch", outputs.baseBranch);
-		}
-		if (outputs.chatErrorKind !== undefined) {
-			core.setOutput("chat-error-kind", outputs.chatErrorKind);
-		}
-		if (outputs.chatErrorMessage !== undefined) {
-			core.setOutput("chat-error-message", outputs.chatErrorMessage);
-		}
+		setActionOutputs(outputs);
 
 		core.debug("Action completed successfully");
 		core.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);

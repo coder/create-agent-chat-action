@@ -1,4 +1,5 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach, spyOn } from "bun:test";
+import * as core from "@actions/core";
 import { CoderAgentChatAction } from "./action";
 import type { Octokit } from "./action";
 import { ActionOutputsSchema } from "./schemas";
@@ -8,6 +9,7 @@ import {
 	createMockInputs,
 	mockUser,
 	mockChat,
+	mockChatWithDiff,
 	mockChatMessageResponse,
 } from "./test-helpers";
 
@@ -20,7 +22,7 @@ describe("CoderAgentChatAction", () => {
 		octokit = createMockOctokit();
 	});
 
-	describe("parseGithubIssueUrl", () => {
+	describe("parseGithubURL", () => {
 		test("parses valid GitHub issue URL", () => {
 			const inputs = createMockInputs({
 				githubURL: "https://github.com/owner/repo/issues/123",
@@ -31,7 +33,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			const result = action.parseGithubIssueURL();
+			const result = action.parseGithubURL();
 
 			expect(result).toEqual({
 				githubOrg: "owner",
@@ -40,7 +42,26 @@ describe("CoderAgentChatAction", () => {
 			});
 		});
 
-		test("throws when no issue URL provided", () => {
+		test("parses valid GitHub pull request URL", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/pull/42",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			const result = action.parseGithubURL();
+
+			expect(result).toEqual({
+				githubOrg: "owner",
+				githubRepo: "repo",
+				githubIssueNumber: 42,
+			});
+		});
+
+		test("throws when no GitHub URL provided", () => {
 			const inputs = createMockInputs({ githubURL: undefined });
 			const action = new CoderAgentChatAction(
 				coderClient,
@@ -48,9 +69,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(() => action.parseGithubIssueURL()).toThrowError(
-				"Missing issue URL",
-			);
+			expect(() => action.parseGithubURL()).toThrowError("Missing GitHub URL");
 		});
 
 		test("throws for invalid URL format", () => {
@@ -61,8 +80,8 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(() => action.parseGithubIssueURL()).toThrowError(
-				"Invalid issue URL: not-a-url",
+			expect(() => action.parseGithubURL()).toThrowError(
+				"Invalid GitHub URL: not-a-url",
 			);
 		});
 
@@ -76,7 +95,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			const result = action.parseGithubIssueURL();
+			const result = action.parseGithubURL();
 
 			expect(result).toEqual({
 				githubOrg: "owner",
@@ -213,9 +232,99 @@ describe("CoderAgentChatAction", () => {
 		const parsedResult = ActionOutputsSchema.parse(result);
 		expect(parsedResult.coderUsername).toBe(mockUser.username);
 		expect(parsedResult.chatCreated).toBe(true);
+		expect(parsedResult.chatStatus).toBe("running");
+		expect(parsedResult.chatTitle).toBe("Test chat");
+		expect(parsedResult.workspaceId).toBe(mockChat.workspace_id ?? undefined);
 		expect(parsedResult.chatUrl).toMatch(
 			/^https:\/\/coder\.test\/chats\/[a-f0-9-]+$/,
 		);
+	});
+
+	describe("buildOutputs", () => {
+		test("maps a chat with no diff_status to base outputs only", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			const out = action.buildOutputs(mockUser.username, mockChat, true);
+
+			expect(out.coderUsername).toBe(mockUser.username);
+			expect(out.chatId).toBe(mockChat.id);
+			expect(out.chatCreated).toBe(true);
+			expect(out.chatStatus).toBe("running");
+			expect(out.chatTitle).toBe("Test chat");
+			expect(out.workspaceId).toBe(mockChat.workspace_id ?? undefined);
+			expect(out.pullRequestUrl).toBeUndefined();
+			expect(out.pullRequestState).toBeUndefined();
+			expect(out.pullRequestTitle).toBeUndefined();
+			expect(out.pullRequestNumber).toBeUndefined();
+			expect(out.additions).toBeUndefined();
+			expect(out.deletions).toBeUndefined();
+			expect(out.changedFiles).toBeUndefined();
+			expect(out.headBranch).toBeUndefined();
+			expect(out.baseBranch).toBeUndefined();
+		});
+
+		test("maps a chat with populated diff_status to PR outputs", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			const out = action.buildOutputs(
+				mockUser.username,
+				mockChatWithDiff,
+				false,
+			);
+
+			expect(out.chatStatus).toBe("completed");
+			expect(out.chatTitle).toBe("Test chat");
+			expect(out.workspaceId).toBe(mockChatWithDiff.workspace_id ?? undefined);
+			expect(out.pullRequestUrl).toBe(
+				"https://github.com/test-org/test-repo/pull/42",
+			);
+			expect(out.pullRequestState).toBe("open");
+			expect(out.pullRequestTitle).toBe("Fix issue #123");
+			expect(out.pullRequestNumber).toBe(42);
+			expect(out.additions).toBe(50);
+			expect(out.deletions).toBe(10);
+			expect(out.changedFiles).toBe(3);
+			expect(out.headBranch).toBe("fix/issue-123");
+			expect(out.baseBranch).toBe("main");
+		});
+
+		test("converts empty pull_request_title to undefined", () => {
+			// pull_request_title defaults to "" in the Zod schema; the action
+			// converts that to undefined to keep the output unset rather than
+			// emitting a meaningless empty string.
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+			const diff = mockChatWithDiff.diff_status;
+			if (!diff) {
+				throw new Error("mockChatWithDiff must have diff_status set");
+			}
+			const chatWithEmptyTitle: typeof mockChatWithDiff = {
+				...mockChatWithDiff,
+				diff_status: { ...diff, pull_request_title: "" },
+			};
+
+			const out = action.buildOutputs(
+				mockUser.username,
+				chatWithEmptyTitle,
+				false,
+			);
+
+			expect(out.pullRequestTitle).toBeUndefined();
+		});
 	});
 
 	test("creates chat using direct coder-username", async () => {
@@ -246,6 +355,13 @@ describe("CoderAgentChatAction", () => {
 		coderClient.mockCreateChatMessage.mockResolvedValue(
 			mockChatMessageResponse,
 		);
+		coderClient.mockGetChat.mockResolvedValue(mockChat);
+		octokit.rest.issues.listComments.mockResolvedValue({
+			data: [],
+		} as ReturnType<typeof octokit.rest.issues.listComments>);
+		octokit.rest.issues.createComment.mockResolvedValue(
+			{} as ReturnType<typeof octokit.rest.issues.createComment>,
+		);
 
 		const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
 		const inputs = createMockInputs({
@@ -268,10 +384,15 @@ describe("CoderAgentChatAction", () => {
 			},
 		);
 		expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		expect(coderClient.mockGetChat).toHaveBeenCalledWith(existingChatId);
 
 		const parsedResult = ActionOutputsSchema.parse(result);
 		expect(parsedResult.chatCreated).toBe(false);
 		expect(parsedResult.chatId).toBe(existingChatId);
+		// Existing-chat path now populates the same outputs as the create path.
+		expect(parsedResult.chatStatus).toBe("running");
+		expect(parsedResult.chatTitle).toBe("Test chat");
+		expect(parsedResult.workspaceId).toBe(mockChat.workspace_id ?? undefined);
 	});
 
 	test("creates chat with workspace-id", async () => {
@@ -344,6 +465,68 @@ describe("CoderAgentChatAction", () => {
 
 			expect(octokit.rest.issues.listComments).toHaveBeenCalled();
 			expect(octokit.rest.issues.createComment).toHaveBeenCalled();
+		});
+	});
+
+	describe("warnUnwiredInputs", () => {
+		test("warns when wait=complete is set", () => {
+			const warning = spyOn(core, "warning").mockImplementation(() => {});
+			try {
+				const inputs = createMockInputs({ wait: "complete" });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+				);
+
+				action.warnUnwiredInputs();
+
+				expect(warning).toHaveBeenCalledWith(
+					expect.stringContaining("`wait: complete`"),
+				);
+			} finally {
+				warning.mockRestore();
+			}
+		});
+
+		test("warns when idempotency-label-key is set", () => {
+			const warning = spyOn(core, "warning").mockImplementation(() => {});
+			try {
+				const inputs = createMockInputs({
+					idempotencyLabelKey: "gh:owner/repo#1",
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+				);
+
+				action.warnUnwiredInputs();
+
+				expect(warning).toHaveBeenCalledWith(
+					expect.stringContaining("`idempotency-label-key`"),
+				);
+			} finally {
+				warning.mockRestore();
+			}
+		});
+
+		test("does not warn at defaults", () => {
+			const warning = spyOn(core, "warning").mockImplementation(() => {});
+			try {
+				const inputs = createMockInputs();
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+				);
+
+				action.warnUnwiredInputs();
+
+				expect(warning).not.toHaveBeenCalled();
+			} finally {
+				warning.mockRestore();
+			}
 		});
 	});
 

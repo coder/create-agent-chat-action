@@ -18,22 +18,23 @@ export class CoderAgentChatAction {
 	) {}
 
 	/**
-	 * Parse owner and repo from issue URL
+	 * Parse owner, repo, and item number from a GitHub issue or PR URL.
+	 * The number namespace is shared between issues and PRs in a repo.
 	 */
-	parseGithubIssueURL(): {
+	parseGithubURL(): {
 		githubOrg: string;
 		githubRepo: string;
 		githubIssueNumber: number;
 	} {
 		if (!this.inputs.githubURL) {
-			throw new Error("Missing issue URL");
+			throw new Error("Missing GitHub URL");
 		}
 
 		const match = this.inputs.githubURL.match(
-			/([^/]+)\/([^/]+)\/issues\/(\d+)/,
+			/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/,
 		);
 		if (!match) {
-			throw new Error(`Invalid issue URL: ${this.inputs.githubURL}`);
+			throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
 		}
 		return {
 			githubOrg: match[1],
@@ -95,6 +96,29 @@ export class CoderAgentChatAction {
 	}
 
 	/**
+	 * Warn loudly when the user opts in to inputs whose behavior has not
+	 * landed yet. The schema accepts these so the slice series (S4 wait,
+	 * S7 idempotency) can wire each one without amending action.yaml
+	 * again, but a workflow author who explicitly sets `wait: complete`
+	 * deserves to see that the action will not honor it yet rather than
+	 * silently returning early.
+	 */
+	warnUnwiredInputs(): void {
+		if (this.inputs.wait === "complete") {
+			core.warning(
+				"`wait: complete` is declared but not yet implemented in this slice; " +
+					"the action will return immediately. Tracked in S4.",
+			);
+		}
+		if (this.inputs.idempotencyLabelKey !== undefined) {
+			core.warning(
+				"`idempotency-label-key` is declared but not yet implemented in this slice; " +
+					"the action will always create a new chat. Tracked in S7.",
+			);
+		}
+	}
+
+	/**
 	 * Build a rich ActionOutputs from a Chat response. Cherry-picked from
 	 * the discarded PR #1; populates v0 outputs from data the chats API
 	 * already returns.
@@ -115,6 +139,10 @@ export class CoderAgentChatAction {
 			workspaceId: chat.workspace_id ?? undefined,
 			pullRequestUrl: diff?.url ?? undefined,
 			pullRequestState: diff?.pull_request_state ?? undefined,
+			// pull_request_title defaults to "" in the Zod schema; use `||`
+			// to also fall through empty string to undefined so the action
+			// output is unset rather than blank. Diverges intentionally from
+			// the `??` style used by the other nullable fields.
 			pullRequestTitle: diff?.pull_request_title || undefined,
 			pullRequestNumber: diff?.pr_number ?? undefined,
 			additions: diff?.additions,
@@ -129,6 +157,8 @@ export class CoderAgentChatAction {
 	 * Main action execution
 	 */
 	async run(): Promise<ActionOutputs> {
+		this.warnUnwiredInputs();
+
 		let coderUsername: string;
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
@@ -143,8 +173,7 @@ export class CoderAgentChatAction {
 			coderUsername = coderUser.username;
 		}
 
-		const { githubOrg, githubRepo, githubIssueNumber } =
-			this.parseGithubIssueURL();
+		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
 		core.info(`GitHub owner: ${githubOrg}`);
 		core.info(`GitHub repo: ${githubRepo}`);
 		core.info(`GitHub issue number: ${githubIssueNumber}`);
@@ -163,6 +192,12 @@ export class CoderAgentChatAction {
 			});
 			core.info("Message sent successfully");
 
+			// Fetch the full chat after the message so the action surfaces a
+			// consistent output shape regardless of which path created or
+			// continued the chat.
+			const chat = await this.coder.getChat(chatId);
+			core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+
 			const chatUrl = this.generateChatUrl(chatId);
 
 			if (this.inputs.commentOnIssue) {
@@ -177,12 +212,7 @@ export class CoderAgentChatAction {
 				);
 			}
 
-			return {
-				coderUsername,
-				chatId: this.inputs.existingChatId,
-				chatUrl,
-				chatCreated: false,
-			};
+			return this.buildOutputs(coderUsername, chat, false);
 		}
 
 		// Create a new chat
