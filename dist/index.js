@@ -22800,7 +22800,7 @@ class CoderAgentChatAction {
   }
   buildOutputs(coderUsername, chat, chatCreated) {
     const diff = chat.diff_status;
-    const hasPR = !!(diff && (diff.url || diff.pr_number != null));
+    const hasPR = diff?.pr_number != null;
     return {
       coderUsername,
       chatId: chat.id,
@@ -22811,7 +22811,7 @@ class CoderAgentChatAction {
       workspaceId: chat.workspace_id ?? undefined,
       pullRequestUrl: diff?.url ?? undefined,
       pullRequestState: diff?.pull_request_state ?? undefined,
-      pullRequestTitle: diff?.pull_request_title || undefined,
+      pullRequestTitle: diff?.pull_request_title ?? undefined,
       pullRequestNumber: diff?.pr_number ?? undefined,
       additions: hasPR ? diff?.additions : undefined,
       deletions: hasPR ? diff?.deletions : undefined,
@@ -26957,7 +26957,7 @@ var ChatDiffStatusSchema = exports_external.object({
   chat_id: exports_external.string().uuid(),
   url: exports_external.string().nullable().optional(),
   pull_request_state: exports_external.string().nullable().optional(),
-  pull_request_title: exports_external.string().nullable().default(""),
+  pull_request_title: exports_external.string().nullable().optional(),
   pull_request_draft: exports_external.boolean().default(false),
   changes_requested: exports_external.boolean().default(false),
   additions: exports_external.number().default(0),
@@ -26980,14 +26980,14 @@ var CoderChatSchema = exports_external.object({
   workspace_id: exports_external.string().uuid().nullable().optional(),
   parent_chat_id: exports_external.string().uuid().nullable().optional(),
   root_chat_id: exports_external.string().uuid().nullable().optional(),
-  last_model_config_id: exports_external.string().uuid().optional(),
+  last_model_config_id: exports_external.string().uuid().nullable().optional(),
   title: exports_external.string(),
   status: ChatStatusSchema,
   last_error: exports_external.string().nullable().optional(),
   diff_status: ChatDiffStatusSchema.nullable().optional(),
   created_at: exports_external.string(),
   updated_at: exports_external.string(),
-  archived: exports_external.boolean().optional()
+  archived: exports_external.boolean().nullable().optional()
 });
 var CoderChatListResponseSchema = exports_external.array(CoderChatSchema);
 var ChatInputPartSchema = exports_external.object({
