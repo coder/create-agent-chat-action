@@ -22760,14 +22760,14 @@ class CoderAgentChatAction {
     return `${baseURL}/chats/${chatId}`;
   }
   async commentOnIssue(chatUrl, owner, repo, issueNumber) {
-    const body = `Agent chat created: ${chatUrl}`;
+    const body = `Agent chat: ${chatUrl}`;
     try {
       const { data: comments } = await this.octokit.rest.issues.listComments({
         owner,
         repo,
         issue_number: issueNumber
       });
-      const existingComment = comments.reverse().find((comment) => comment.body?.startsWith("Agent chat created:"));
+      const existingComment = comments.reverse().find((comment) => comment.body?.startsWith("Agent chat:"));
       if (existingComment) {
         await this.octokit.rest.issues.updateComment({
           owner,
@@ -22784,7 +22784,7 @@ class CoderAgentChatAction {
         });
       }
     } catch (error2) {
-      core.error(`Failed to comment on issue: ${error2}`);
+      core.error(`Failed to post comment: ${error2}`);
     }
   }
   warnUnwiredInputs() {
@@ -22794,9 +22794,13 @@ class CoderAgentChatAction {
     if (this.inputs.idempotencyLabelKey !== undefined) {
       core.warning("`idempotency-label-key` is declared but not yet implemented; " + "the action will always create a new chat.");
     }
+    if (this.inputs.coderOrganization !== undefined) {
+      core.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
+    }
   }
   buildOutputs(coderUsername, chat, chatCreated) {
     const diff = chat.diff_status;
+    const hasPR = !!(diff && (diff.url || diff.pr_number != null));
     return {
       coderUsername,
       chatId: chat.id,
@@ -22809,11 +22813,12 @@ class CoderAgentChatAction {
       pullRequestState: diff?.pull_request_state ?? undefined,
       pullRequestTitle: diff?.pull_request_title || undefined,
       pullRequestNumber: diff?.pr_number ?? undefined,
-      additions: diff?.additions,
-      deletions: diff?.deletions,
-      changedFiles: diff?.changed_files,
+      additions: hasPR ? diff?.additions : undefined,
+      deletions: hasPR ? diff?.deletions : undefined,
+      changedFiles: hasPR ? diff?.changed_files : undefined,
       headBranch: diff?.head_branch ?? undefined,
-      baseBranch: diff?.base_branch ?? undefined
+      baseBranch: diff?.base_branch ?? undefined,
+      chatErrorMessage: chat.last_error ?? undefined
     };
   }
   async run() {
@@ -22877,7 +22882,6 @@ class CoderAgentChatAction {
     if (this.inputs.commentOnIssue) {
       core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
       await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
-      core.info("Comment posted successfully");
     } else {
       core.info("Skipping comment (commentOnIssue is false)");
     }
@@ -26953,7 +26957,7 @@ var ChatDiffStatusSchema = exports_external.object({
   chat_id: exports_external.string().uuid(),
   url: exports_external.string().nullable().optional(),
   pull_request_state: exports_external.string().nullable().optional(),
-  pull_request_title: exports_external.string().default(""),
+  pull_request_title: exports_external.string().nullable().default(""),
   pull_request_draft: exports_external.boolean().default(false),
   changes_requested: exports_external.boolean().default(false),
   additions: exports_external.number().default(0),
@@ -27048,6 +27052,7 @@ function setActionOutputs(outputs) {
 }
 
 // src/schemas.ts
+var DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
 var ActionInputsObjectSchema = exports_external.object({
   chatPrompt: exports_external.string().min(1),
   coderToken: exports_external.string().min(1),
@@ -27062,11 +27067,11 @@ var ActionInputsObjectSchema = exports_external.object({
   existingChatId: exports_external.string().uuid().optional(),
   commentOnIssue: exports_external.boolean().default(true),
   wait: exports_external.enum(["none", "complete"]).default("none"),
-  waitTimeoutSeconds: exports_external.coerce.number().int().positive().default(600),
+  waitTimeoutSeconds: exports_external.coerce.number().int().positive().default(DEFAULT_WAIT_TIMEOUT_SECONDS),
   idempotencyLabelKey: exports_external.string().min(1).optional()
 });
 var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.githubUserID !== undefined && data.coderUsername !== undefined), {
-  message: "Cannot set both github-user-id and coder-username; choose one or leave both unset to auto-resolve.",
+  message: "Cannot set both github-user-id and coder-username; choose one.",
   path: ["coderUsername"]
 });
 var ActionOutputsSchema = exports_external.object({
