@@ -36,7 +36,7 @@ inputs:
     required: false
 
   coder-organization:
-    description: "Coder organization name. Defaults to the resolved Coder user's first organization membership."
+    description: "Coder organization name. Reserved; not yet wired through to chat creation, the action emits a warning if set."
     required: false
 
   workspace-id:
@@ -57,7 +57,7 @@ inputs:
     default: "true"
 
   wait:
-    description: "Wait mode. 'none' returns immediately after creation; 'complete' polls until the chat reaches a terminal status or wait-timeout-seconds is reached."
+    description: "Wait mode. Reserved: 'complete' is intended to poll until the chat reaches a terminal status or wait-timeout-seconds, but is not yet wired; the action emits a warning and returns immediately."
     required: false
     default: "none"
 
@@ -67,7 +67,7 @@ inputs:
     default: "600"
 
   idempotency-label-key:
-    description: "Optional label key used to deduplicate chats. When set and existing-chat-id is unset, the action reuses the most recent matching chat instead of creating a duplicate."
+    description: "Optional label key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat."
     required: false
 
 outputs:

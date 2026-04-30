@@ -158,7 +158,7 @@ export const ChatDiffStatusSchema = z.object({
 	chat_id: z.string().uuid(),
 	url: z.string().nullable().optional(),
 	pull_request_state: z.string().nullable().optional(),
-	pull_request_title: z.string().default(""),
+	pull_request_title: z.string().nullable().default(""),
 	pull_request_draft: z.boolean().default(false),
 	changes_requested: z.boolean().default(false),
 	additions: z.number().default(0),

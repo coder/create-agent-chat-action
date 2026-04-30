@@ -10,6 +10,7 @@ import type {
 	ChatId,
 } from "./coder-client";
 import type { ActionInputs } from "./schemas";
+import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./schemas";
 
 /**
  * Mock data for tests
@@ -103,7 +104,7 @@ export function createMockInputs(
 		githubUserID: 12345,
 		commentOnIssue: true,
 		wait: "none",
-		waitTimeoutSeconds: 600,
+		waitTimeoutSeconds: DEFAULT_WAIT_TIMEOUT_SECONDS,
 		...overrides,
 	} as ActionInputs;
 }

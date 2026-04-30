@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import * as core from "@actions/core";
 import { OUTPUT_MAP, setActionOutputs } from "./outputs";
 import type { ActionOutputs } from "./schemas";
+import { ActionOutputsSchema } from "./schemas";
 
 const baseOutputs: ActionOutputs = {
 	coderUsername: "u",
@@ -62,6 +63,17 @@ describe("OUTPUT_MAP", () => {
 			"chat-url",
 			"chat-created",
 		]);
+	});
+
+	// Structural guard: a new ActionOutputs property without a matching
+	// OUTPUT_MAP entry compiles, passes type checks, and silently never
+	// emits the output. This test fails loudly when the two drift.
+	test("covers every ActionOutputsSchema key", () => {
+		const mapProps = new Set(OUTPUT_MAP.map((e) => e.prop));
+		const schemaKeys = new Set(
+			Object.keys(ActionOutputsSchema.shape) as Array<keyof ActionOutputs>,
+		);
+		expect(mapProps).toEqual(schemaKeys);
 	});
 });
 

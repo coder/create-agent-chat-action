@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+// Default for wait-timeout-seconds. Mirrored in action.yaml's default; keep
+// in sync if either changes.
+export const DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
+
 // Mutual exclusion of github-user-id and coder-username is enforced by
 // the wrapper schema below. Both identity inputs are optional at the
 // object level so the runtime can later auto-resolve from the workflow
@@ -18,7 +22,11 @@ const ActionInputsObjectSchema = z.object({
 	existingChatId: z.string().uuid().optional(),
 	commentOnIssue: z.boolean().default(true),
 	wait: z.enum(["none", "complete"]).default("none"),
-	waitTimeoutSeconds: z.coerce.number().int().positive().default(600),
+	waitTimeoutSeconds: z.coerce
+		.number()
+		.int()
+		.positive()
+		.default(DEFAULT_WAIT_TIMEOUT_SECONDS),
 	idempotencyLabelKey: z.string().min(1).optional(),
 });
 
@@ -26,8 +34,7 @@ export const ActionInputsSchema = ActionInputsObjectSchema.refine(
 	(data) =>
 		!(data.githubUserID !== undefined && data.coderUsername !== undefined),
 	{
-		message:
-			"Cannot set both github-user-id and coder-username; choose one or leave both unset to auto-resolve.",
+		message: "Cannot set both github-user-id and coder-username; choose one.",
 		path: ["coderUsername"],
 	},
 );

@@ -89,16 +89,16 @@ jobs:
 | coder-url             | Coder deployment URL.                                                                                                                                                                    | true     | -       |
 | github-url            | GitHub issue or pull request URL to link the chat to. Used for the issue/PR comment and as the human-readable association in the chat label.                                             | true     | -       |
 | github-token          | GitHub token used to post and update issue comments.                                                                                                                                     | true     | -       |
-| github-user-id        | GitHub user ID to resolve to a Coder user. Mutually exclusive with coder-username; both may be unset to auto-resolve from the workflow context.                                          | false    | -       |
+| github-user-id        | GitHub user ID to resolve to a Coder user. Mutually exclusive with coder-username.                                                                                                       | false    | -       |
 | coder-username        | Coder username to use directly. Mutually exclusive with github-user-id; useful for service-account workflows.                                                                            | false    | -       |
-| coder-organization    | Coder organization name. Defaults to the resolved Coder user's first organization membership.                                                                                            | false    | -       |
+| coder-organization    | Coder organization name. Reserved; not yet wired through to chat creation, the action emits a warning if set.                                                                            | false    | -       |
 | workspace-id          | Existing workspace ID to pin the chat to. If unset, Agents auto-provisions a workspace.                                                                                                  | false    | -       |
 | model-config-id       | Model configuration ID to use for the chat.                                                                                                                                              | false    | -       |
 | existing-chat-id      | Existing chat ID to send a follow-up message to instead of creating a new chat.                                                                                                          | false    | -       |
 | comment-on-issue      | Whether to comment on the GitHub issue or pull request with the chat URL and status.                                                                                                     | false    | true    |
-| wait                  | Wait mode. `none` returns immediately after creation; `complete` polls until the chat reaches a terminal status or wait-timeout-seconds is reached.                                      | false    | none    |
+| wait                  | Wait mode. Reserved: `complete` is intended to poll until terminal status or wait-timeout-seconds, but is not yet wired; the action emits a warning and returns immediately.             | false    | none    |
 | wait-timeout-seconds  | Maximum seconds to wait when wait=complete before failing with a timeout.                                                                                                                | false    | 600     |
-| idempotency-label-key | Optional label key used to deduplicate chats. When set and existing-chat-id is unset, the action reuses the most recent matching chat instead of creating a duplicate.                   | false    | -       |
+| idempotency-label-key | Optional label key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat.                                                  | false    | -       |
 
 ## Outputs
 

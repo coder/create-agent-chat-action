@@ -4,7 +4,9 @@ import {
 	type ActionInputs,
 	ActionInputsSchema,
 	ActionOutputsSchema,
+	DEFAULT_WAIT_TIMEOUT_SECONDS,
 } from "./schemas";
+import { mockChat, mockChatWithDiff } from "./test-helpers";
 
 const actionInputValid: ActionInputs = {
 	coderURL: "https://coder.test",
@@ -16,7 +18,7 @@ const actionInputValid: ActionInputs = {
 	githubUserID: 12345,
 	commentOnIssue: true,
 	wait: "none",
-	waitTimeoutSeconds: 600,
+	waitTimeoutSeconds: DEFAULT_WAIT_TIMEOUT_SECONDS,
 };
 
 describe("ActionInputsSchema", () => {
@@ -229,10 +231,10 @@ describe("ActionInputsSchema", () => {
 	});
 
 	describe("wait-timeout-seconds", () => {
-		test("defaults to 600 when omitted", () => {
+		test("defaults to DEFAULT_WAIT_TIMEOUT_SECONDS when omitted", () => {
 			const { waitTimeoutSeconds: _, ...withoutTimeout } = actionInputValid;
 			const result = ActionInputsSchema.parse(withoutTimeout);
-			expect(result.waitTimeoutSeconds).toBe(600);
+			expect(result.waitTimeoutSeconds).toBe(DEFAULT_WAIT_TIMEOUT_SECONDS);
 		});
 
 		test("accepts a positive integer", () => {
@@ -329,52 +331,17 @@ describe("ActionOutputsSchema", () => {
 });
 
 describe("CoderChatSchema", () => {
-	const baseChat = {
-		id: "990e8400-e29b-41d4-a716-446655440000",
-		owner_id: "550e8400-e29b-41d4-a716-446655440000",
-		workspace_id: "aa0e8400-e29b-41d4-a716-446655440000",
-		title: "Test chat",
-		status: "running",
-		created_at: "2024-01-01T00:00:00Z",
-		updated_at: "2024-01-01T00:00:00Z",
-	};
-
 	test("parses a minimal chat object", () => {
-		const result = CoderChatSchema.parse(baseChat);
-		expect(result.title).toBe("Test chat");
-		expect(result.status).toBe("running");
+		const result = CoderChatSchema.parse(mockChat);
+		expect(result.title).toBe(mockChat.title);
+		expect(result.status).toBe(mockChat.status);
 	});
 
 	test("parses a chat with diff_status populated", () => {
-		const chatWithDiff = {
-			...baseChat,
-			status: "completed",
-			diff_status: {
-				chat_id: baseChat.id,
-				url: "https://github.com/owner/repo/pull/42",
-				pull_request_state: "open",
-				pull_request_title: "Fix issue #123",
-				pull_request_draft: false,
-				changes_requested: false,
-				additions: 50,
-				deletions: 10,
-				changed_files: 3,
-				author_login: "testuser",
-				author_avatar_url: null,
-				base_branch: "main",
-				head_branch: "fix/issue-123",
-				pr_number: 42,
-				commits: 2,
-				approved: false,
-				reviewer_count: 0,
-				refreshed_at: "2024-01-01T01:00:00Z",
-				stale_at: null,
-			},
-		};
-		const result = CoderChatSchema.parse(chatWithDiff);
+		const result = CoderChatSchema.parse(mockChatWithDiff);
 		expect(result.diff_status).toBeDefined();
 		expect(result.diff_status?.url).toBe(
-			"https://github.com/owner/repo/pull/42",
+			"https://github.com/test-org/test-repo/pull/42",
 		);
 		expect(result.diff_status?.pr_number).toBe(42);
 		expect(result.diff_status?.additions).toBe(50);
@@ -388,7 +355,7 @@ describe("CoderChatSchema", () => {
 
 	test("parses a chat with diff_status null", () => {
 		const result = CoderChatSchema.parse({
-			...baseChat,
+			...mockChat,
 			diff_status: null,
 		});
 		expect(result.diff_status).toBeNull();
@@ -396,7 +363,7 @@ describe("CoderChatSchema", () => {
 
 	test("parses a chat with last_error populated", () => {
 		const result = CoderChatSchema.parse({
-			...baseChat,
+			...mockChat,
 			status: "error",
 			last_error: "spend cap reached",
 		});

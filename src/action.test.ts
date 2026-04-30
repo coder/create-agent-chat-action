@@ -157,14 +157,14 @@ describe("CoderAgentChatAction", () => {
 				owner: "owner",
 				repo: "repo",
 				issue_number: 123,
-				body: "Agent chat created: chat-url",
+				body: "Agent chat: chat-url",
 			});
 		});
 
-		test("updates existing Agent chat created comment", async () => {
+		test("updates existing Agent chat comment", async () => {
 			octokit.rest.issues.listComments.mockResolvedValue({
 				data: [
-					{ id: 1, body: "Agent chat created: old-url" },
+					{ id: 1, body: "Agent chat: old-url" },
 					{ id: 2, body: "Other comment" },
 				],
 			} as ReturnType<typeof octokit.rest.issues.listComments>);
@@ -185,7 +185,7 @@ describe("CoderAgentChatAction", () => {
 				owner: "owner",
 				repo: "repo",
 				comment_id: 1,
-				body: "Agent chat created: new-url",
+				body: "Agent chat: new-url",
 			});
 		});
 
@@ -201,7 +201,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(
+			await expect(
 				action.commentOnIssue("url", "owner", "repo", 123),
 			).resolves.toBeUndefined();
 		});
@@ -324,6 +324,97 @@ describe("CoderAgentChatAction", () => {
 			);
 
 			expect(out.pullRequestTitle).toBeUndefined();
+		});
+
+		test("emits zero numerics when a PR exists", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+			const diff = mockChatWithDiff.diff_status;
+			if (!diff) {
+				throw new Error("mockChatWithDiff must have diff_status set");
+			}
+			const zeroDiff: typeof mockChatWithDiff = {
+				...mockChatWithDiff,
+				diff_status: {
+					...diff,
+					additions: 0,
+					deletions: 0,
+					changed_files: 0,
+				},
+			};
+
+			const out = action.buildOutputs(mockUser.username, zeroDiff, false);
+
+			// Zero is a valid value when a PR exists; gating is on PR
+			// presence, not on the numeric being non-zero.
+			expect(out.additions).toBe(0);
+			expect(out.deletions).toBe(0);
+			expect(out.changedFiles).toBe(0);
+		});
+
+		test("skips numerics when diff_status has no PR indicator", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+			const diff = mockChatWithDiff.diff_status;
+			if (!diff) {
+				throw new Error("mockChatWithDiff must have diff_status set");
+			}
+			// diff_status present but no PR yet: url null, pr_number null.
+			// The Zod .default(0) numerics would otherwise leak as "0".
+			const noPRYet: typeof mockChatWithDiff = {
+				...mockChatWithDiff,
+				diff_status: {
+					...diff,
+					url: null,
+					pr_number: null,
+				},
+			};
+
+			const out = action.buildOutputs(mockUser.username, noPRYet, false);
+
+			expect(out.additions).toBeUndefined();
+			expect(out.deletions).toBeUndefined();
+			expect(out.changedFiles).toBeUndefined();
+		});
+
+		test("maps last_error to chatErrorMessage", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+			const chatWithError: typeof mockChat = {
+				...mockChat,
+				status: "error",
+				last_error: "spend cap reached",
+			};
+
+			const out = action.buildOutputs(mockUser.username, chatWithError, true);
+
+			expect(out.chatErrorMessage).toBe("spend cap reached");
+			expect(out.chatStatus).toBe("error");
+		});
+
+		test("leaves chatErrorMessage undefined when last_error is null", () => {
+			const inputs = createMockInputs();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+			);
+
+			const out = action.buildOutputs(mockUser.username, mockChat, true);
+
+			expect(out.chatErrorMessage).toBeUndefined();
 		});
 	});
 
@@ -545,10 +636,30 @@ describe("CoderAgentChatAction", () => {
 			}
 		});
 
+		test("warns when coder-organization is set", () => {
+			const warning = spyOn(core, "warning").mockImplementation(() => {});
+			try {
+				const inputs = createMockInputs({ coderOrganization: "my-org" });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+				);
+
+				action.warnUnwiredInputs();
+
+				expect(warning).toHaveBeenCalledWith(
+					expect.stringContaining("`coder-organization`"),
+				);
+			} finally {
+				warning.mockRestore();
+			}
+		});
+
 		test("does not warn at defaults", () => {
 			const warning = spyOn(core, "warning").mockImplementation(() => {});
 			try {
-				const inputs = createMockInputs();
+				const inputs = createMockInputs({ coderOrganization: undefined });
 				const action = new CoderAgentChatAction(
 					coderClient,
 					octokit as unknown as Octokit,
@@ -580,7 +691,7 @@ describe("CoderAgentChatAction", () => {
 			// runtime can later auto-resolve from the workflow context;
 			// until that lands, action.run must fail with a clear message
 			// instead of calling the user lookup with undefined.
-			expect(action.run()).rejects.toThrow(
+			await expect(action.run()).rejects.toThrow(
 				/set either `github-user-id` or `coder-username`/,
 			);
 			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
@@ -600,7 +711,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(action.run()).rejects.toThrow(
+			await expect(action.run()).rejects.toThrow(
 				"No Coder user found with GitHub user ID 12345",
 			);
 		});
@@ -618,7 +729,7 @@ describe("CoderAgentChatAction", () => {
 				inputs,
 			);
 
-			expect(action.run()).rejects.toThrow("Failed to create chat");
+			await expect(action.run()).rejects.toThrow("Failed to create chat");
 		});
 	});
 });

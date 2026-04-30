@@ -52,7 +52,7 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Comment on GitHub issue with chat link
+	 * Comment on the linked GitHub issue or pull request with the chat link.
 	 */
 	async commentOnIssue(
 		chatUrl: string,
@@ -60,7 +60,7 @@ export class CoderAgentChatAction {
 		repo: string,
 		issueNumber: number,
 	): Promise<void> {
-		const body = `Agent chat created: ${chatUrl}`;
+		const body = `Agent chat: ${chatUrl}`;
 
 		try {
 			const { data: comments } = await this.octokit.rest.issues.listComments({
@@ -72,7 +72,7 @@ export class CoderAgentChatAction {
 			const existingComment = comments
 				.reverse()
 				.find((comment: { body?: string }) =>
-					comment.body?.startsWith("Agent chat created:"),
+					comment.body?.startsWith("Agent chat:"),
 				);
 
 			if (existingComment) {
@@ -91,7 +91,7 @@ export class CoderAgentChatAction {
 				});
 			}
 		} catch (error) {
-			core.error(`Failed to comment on issue: ${error}`);
+			core.error(`Failed to post comment: ${error}`);
 		}
 	}
 
@@ -114,6 +114,13 @@ export class CoderAgentChatAction {
 					"the action will always create a new chat.",
 			);
 		}
+		if (this.inputs.coderOrganization !== undefined) {
+			core.warning(
+				"`coder-organization` is declared but not yet wired through to " +
+					"the API; the chat will be created without an explicit " +
+					"organization.",
+			);
+		}
 	}
 
 	/**
@@ -125,6 +132,15 @@ export class CoderAgentChatAction {
 		chatCreated: boolean,
 	): ActionOutputs {
 		const diff = chat.diff_status;
+		// Three nullish-handling patterns appear below, matched to the
+		// underlying Zod schema:
+		//   `?? undefined` for `.nullable().optional()` fields.
+		//   `|| undefined` for `.nullable().default("")` (collapses "" to
+		//     undefined so the output is unset, not blank).
+		//   gated `hasPR ? ... : undefined` for `.default(0)` numerics, so a
+		//     chat with diff_status but no PR yet does not emit a misleading
+		//     truthy "0".
+		const hasPR = !!(diff && (diff.url || diff.pr_number != null));
 		return {
 			coderUsername,
 			chatId: chat.id,
@@ -135,15 +151,14 @@ export class CoderAgentChatAction {
 			workspaceId: chat.workspace_id ?? undefined,
 			pullRequestUrl: diff?.url ?? undefined,
 			pullRequestState: diff?.pull_request_state ?? undefined,
-			// Empty pull_request_title (the Zod default) maps to undefined so
-			// the output stays unset rather than blank.
 			pullRequestTitle: diff?.pull_request_title || undefined,
 			pullRequestNumber: diff?.pr_number ?? undefined,
-			additions: diff?.additions,
-			deletions: diff?.deletions,
-			changedFiles: diff?.changed_files,
+			additions: hasPR ? diff?.additions : undefined,
+			deletions: hasPR ? diff?.deletions : undefined,
+			changedFiles: hasPR ? diff?.changed_files : undefined,
 			headBranch: diff?.head_branch ?? undefined,
 			baseBranch: diff?.base_branch ?? undefined,
+			chatErrorMessage: chat.last_error ?? undefined,
 		};
 	}
 
@@ -260,7 +275,6 @@ export class CoderAgentChatAction {
 				githubRepo,
 				githubIssueNumber,
 			);
-			core.info("Comment posted successfully");
 		} else {
 			core.info("Skipping comment (commentOnIssue is false)");
 		}
