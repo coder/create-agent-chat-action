@@ -27,7 +27,7 @@ const ActionInputsObjectSchema = z.object({
 		.int()
 		.positive()
 		.default(DEFAULT_WAIT_TIMEOUT_SECONDS),
-	idempotencyLabelKey: z.string().min(1).optional(),
+	idempotencyKey: z.string().min(1).optional(),
 });
 
 export const ActionInputsSchema = ActionInputsObjectSchema.refine(

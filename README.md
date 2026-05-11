@@ -98,7 +98,7 @@ jobs:
 | comment-on-issue      | Whether to comment on the GitHub issue or pull request with the chat URL and status.                                                                                                     | false    | true    |
 | wait                  | Wait mode. Reserved: `complete` is intended to poll until terminal status or wait-timeout-seconds, but is not yet wired; the action emits a warning and returns immediately.             | false    | none    |
 | wait-timeout-seconds  | Maximum seconds to wait when wait=complete before failing with a timeout.                                                                                                                | false    | 600     |
-| idempotency-label-key | Optional label key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat.                                                  | false    | -       |
+| idempotency-key       | Optional key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat.                                                        | false    | -       |
 
 ## Outputs
 

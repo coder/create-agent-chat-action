@@ -22791,8 +22791,8 @@ class CoderAgentChatAction {
     if (this.inputs.wait === "complete") {
       core.warning("`wait: complete` is declared but not yet implemented; " + "the action will return immediately.");
     }
-    if (this.inputs.idempotencyLabelKey !== undefined) {
-      core.warning("`idempotency-label-key` is declared but not yet implemented; " + "the action will always create a new chat.");
+    if (this.inputs.idempotencyKey !== undefined) {
+      core.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
     }
     if (this.inputs.coderOrganization !== undefined) {
       core.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
@@ -27068,7 +27068,7 @@ var ActionInputsObjectSchema = exports_external.object({
   commentOnIssue: exports_external.boolean().default(true),
   wait: exports_external.enum(["none", "complete"]).default("none"),
   waitTimeoutSeconds: exports_external.coerce.number().int().positive().default(DEFAULT_WAIT_TIMEOUT_SECONDS),
-  idempotencyLabelKey: exports_external.string().min(1).optional()
+  idempotencyKey: exports_external.string().min(1).optional()
 });
 var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.githubUserID !== undefined && data.coderUsername !== undefined), {
   message: "Cannot set both github-user-id and coder-username; choose one.",
@@ -27115,7 +27115,7 @@ async function main() {
       commentOnIssue: core3.getBooleanInput("comment-on-issue"),
       wait: core3.getInput("wait") || undefined,
       waitTimeoutSeconds: core3.getInput("wait-timeout-seconds") || undefined,
-      idempotencyLabelKey: core3.getInput("idempotency-label-key") || undefined
+      idempotencyKey: core3.getInput("idempotency-key") || undefined
     });
     core3.debug("Inputs validated successfully");
     core3.debug(`Coder URL: ${inputs.coderURL}`);

@@ -657,11 +657,11 @@ describe("CoderAgentChatAction", () => {
 			}
 		});
 
-		test("warns when idempotency-label-key is set", () => {
+		test("warns when idempotency-key is set", () => {
 			const warning = spyOn(core, "warning").mockImplementation(() => {});
 			try {
 				const inputs = createMockInputs({
-					idempotencyLabelKey: "gh:owner/repo#1",
+					idempotencyKey: "gh:owner/repo#1",
 				});
 				const action = new CoderAgentChatAction(
 					coderClient,
@@ -672,7 +672,7 @@ describe("CoderAgentChatAction", () => {
 				action.warnUnwiredInputs();
 
 				expect(warning).toHaveBeenCalledWith(
-					expect.stringContaining("`idempotency-label-key`"),
+					expect.stringContaining("`idempotency-key`"),
 				);
 			} finally {
 				warning.mockRestore();

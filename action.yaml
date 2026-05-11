@@ -66,8 +66,8 @@ inputs:
     required: false
     default: "600"
 
-  idempotency-label-key:
-    description: "Optional label key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat."
+  idempotency-key:
+    description: "Optional key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat."
     required: false
 
 outputs:

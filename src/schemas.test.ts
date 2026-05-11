@@ -61,13 +61,13 @@ describe("ActionInputsSchema", () => {
 			expect(result.existingChatId).toBe(input.existingChatId);
 		});
 
-		test("accepts optional idempotency-label-key", () => {
+		test("accepts optional idempotency-key", () => {
 			const input = {
 				...actionInputValid,
-				idempotencyLabelKey: "gh:owner/repo#123",
+				idempotencyKey: "gh:owner/repo#123",
 			};
 			const result = ActionInputsSchema.parse(input);
-			expect(result.idempotencyLabelKey).toBe(input.idempotencyLabelKey);
+			expect(result.idempotencyKey).toBe(input.idempotencyKey);
 		});
 
 		test("coderOrganization is optional with no default", () => {

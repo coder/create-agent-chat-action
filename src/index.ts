@@ -27,7 +27,7 @@ async function main() {
 			commentOnIssue: core.getBooleanInput("comment-on-issue"),
 			wait: core.getInput("wait") || undefined,
 			waitTimeoutSeconds: core.getInput("wait-timeout-seconds") || undefined,
-			idempotencyLabelKey: core.getInput("idempotency-label-key") || undefined,
+			idempotencyKey: core.getInput("idempotency-key") || undefined,
 		});
 
 		core.debug("Inputs validated successfully");

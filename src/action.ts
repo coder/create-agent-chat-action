@@ -108,9 +108,9 @@ export class CoderAgentChatAction {
 					"the action will return immediately.",
 			);
 		}
-		if (this.inputs.idempotencyLabelKey !== undefined) {
+		if (this.inputs.idempotencyKey !== undefined) {
 			core.warning(
-				"`idempotency-label-key` is declared but not yet implemented; " +
+				"`idempotency-key` is declared but not yet implemented; " +
 					"the action will always create a new chat.",
 			);
 		}
