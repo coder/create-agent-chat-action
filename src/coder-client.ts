@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeBaseUrl } from "./comment";
+import { normalizeBaseUrl } from "./url";
 
 export interface CoderClient {
 	getCoderUserByGitHubId(

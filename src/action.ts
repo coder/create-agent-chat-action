@@ -950,8 +950,11 @@ export class CoderAgentChatAction {
 			core.info(
 				`Sending message to existing chat: ${this.inputs.existingChatId}`,
 			);
-			// Runtime-parse so a malformed `existing-chat-id` fails fast with a
-			// Zod error instead of being coerced past the brand at compile time.
+			// Narrow the already-validated string to the branded `ChatId` via
+			// `.parse()` instead of the previous unsafe `as ChatId` cast.
+			// `ActionInputsSchema` validates `existingChatId` as a UUID up in
+			// `index.ts`, so `.parse()` here is the branding step (and a
+			// defense-in-depth check if a future caller bypasses that schema).
 			const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
 
 			await this.coder.createChatMessage(chatId, {

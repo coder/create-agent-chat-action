@@ -7,15 +7,22 @@ import {
 } from "./coder-client";
 import { sanitizeLabelKey } from "./sanitize-label-key";
 import type { ActionInputs } from "./schemas";
+import { normalizeBaseUrl } from "./url";
+
+// Re-export so `action.ts` and tests keep their existing import sites.
+export { normalizeBaseUrl } from "./url";
 
 type Octokit = ReturnType<typeof getOctokit>;
 
 // Shared regex for GitHub issue and PR URLs. Used by `deriveCommentKey` and
 // `parseGithubURL` so adding another path (e.g. `/discussions/`) is one edit.
-// Anchored at the tail (`\/?$`) so URLs with extra path segments after the
-// number (e.g. `.../issues/123/files`) are rejected rather than silently
-// truncated.
-export const GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?$/;
+// Anchored at the tail so URLs with extra path segments after the number
+// (e.g. `.../issues/123/files`) are rejected rather than silently truncated.
+// The `(?:[?#].*)?` group keeps the anchor tolerant of query strings and
+// fragments that real-world `github-url` inputs can carry (e.g. a URL copied
+// while viewing a specific comment).
+export const GITHUB_URL_REGEX =
+	/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/;
 
 // Discriminated union so spend-exceeded fields are only representable on the
 // spend-exceeded variant; the body builder reads them directly without a
@@ -534,13 +541,6 @@ export async function upsertCommentByMarker(args: {
 		predicate: (comment) => comment.body?.includes(args.marker) ?? false,
 		logLabel: "failure comment",
 	});
-}
-
-// Strip query/fragment and a trailing slash from a Coder deployment URL so
-// it can be safely concatenated with a path. Shared by `generateChatUrl`
-// and `buildDeploymentChatsUrl`.
-export function normalizeBaseUrl(coderURL: string): string {
-	return coderURL.split(/[?#]/)[0].replace(/\/$/, "");
 }
 
 // Deployment-level chats URL for the "view chats" link in the failure body.
