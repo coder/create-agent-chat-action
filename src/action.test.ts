@@ -1,10 +1,16 @@
 import { describe, expect, test, beforeEach, spyOn } from "bun:test";
 import * as core from "@actions/core";
-import { CoderAgentChatAction } from "./action";
+import {
+	ActionFailureError,
+	CoderAgentChatAction,
+	MAX_CONSECUTIVE_POLL_FAILURES,
+	POLL_INTERVAL_MS,
+} from "./action";
 import type { Octokit } from "./action";
 import { ActionOutputsSchema } from "./schemas";
 import {
 	MockCoderClient,
+	createFakeClock,
 	createMockOctokit,
 	createMockInputs,
 	mockUser,
@@ -637,7 +643,7 @@ describe("CoderAgentChatAction", () => {
 	});
 
 	describe("warnUnwiredInputs", () => {
-		test("warns when wait=complete is set", () => {
+		test("does not warn for wait=complete", () => {
 			const warning = spyOn(core, "warning").mockImplementation(() => {});
 			try {
 				const inputs = createMockInputs({ wait: "complete" });
@@ -649,7 +655,7 @@ describe("CoderAgentChatAction", () => {
 
 				action.warnUnwiredInputs();
 
-				expect(warning).toHaveBeenCalledWith(
+				expect(warning).not.toHaveBeenCalledWith(
 					expect.stringContaining("`wait: complete`"),
 				);
 			} finally {
@@ -738,6 +744,746 @@ describe("CoderAgentChatAction", () => {
 				/set either `github-user-id` or `coder-username`/,
 			);
 			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("wait=complete polling", () => {
+		test("wait=none honors the wait gate: no getChat, no clock sleep", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "none",
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			await action.run();
+
+			// Assert both observable effects of skipping the loop: no
+			// getChat and no clock sleep.
+			expect(coderClient.mockGetChat).not.toHaveBeenCalled();
+			expect(coderClient.mockListChats).not.toHaveBeenCalled();
+			expect(clock.sleeps).toEqual([]);
+		});
+
+		test("wait=complete polls getChat every 5 seconds until terminal", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce({ ...mockChat, status: "completed" });
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			await action.run();
+
+			// 3 polls + 2 sleeps mirrors doc-check.yaml's cadence.
+			// listChats is the wrong API shape; assert it is never used.
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(3);
+			expect(coderClient.mockListChats).not.toHaveBeenCalled();
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS, POLL_INTERVAL_MS]);
+		});
+
+		test("wait=complete + commentOnIssue posts the comment after the chat reaches terminal", async () => {
+			// Polling must complete before the comment goes out, otherwise a
+			// failure mid-poll would leave a stale "Agent chat:" comment on
+			// the issue while the workflow step itself fails.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce({ ...mockChat, status: "completed" });
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: true,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			await action.run();
+
+			// invocationCallOrder is a monotonic counter shared across all
+			// bun:test mocks in the process, so the last getChat call must
+			// happen strictly before any comment API call.
+			const getChatOrders = coderClient.mockGetChat.mock.invocationCallOrder;
+			const lastGetChat = getChatOrders[getChatOrders.length - 1];
+			const firstCommentApi = Math.min(
+				...octokit.rest.issues.listComments.mock.invocationCallOrder,
+				...octokit.rest.issues.createComment.mock.invocationCallOrder,
+			);
+			expect(lastGetChat).toBeLessThan(firstCommentApi);
+			expect(octokit.rest.issues.createComment).toHaveBeenCalled();
+		});
+
+		test("wait=complete fails with chat-error-kind=timeout when timeout reached", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 10,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("timeout");
+			expect(err.message).toContain("10");
+			expect(err.chat).toBeDefined();
+			expect(err.chat?.status).toBe("running");
+		});
+
+		test("wait=complete fails when chat enters error during polling", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce({
+					...mockChat,
+					status: "error",
+					last_error: "Anthropic 429 rate limit",
+				});
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			// CODAGT-290 will refine last_error mapping; until then,
+			// every error terminal surfaces as api_error.
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("api_error");
+			expect(err.message).toContain("Anthropic 429 rate limit");
+			expect(err.chat).toBeDefined();
+			expect(err.chat?.status).toBe("error");
+		});
+
+		test("wait=complete reaches terminal status, outputs reflect final chat state", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			const initialChat = {
+				...mockChat,
+				status: "running" as const,
+				title: "initial title",
+			};
+			const finalChat = {
+				...mockChat,
+				status: "completed" as const,
+				title: "final title",
+			};
+			coderClient.mockCreateChat.mockResolvedValue(initialChat);
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce(finalChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+			const parsed = ActionOutputsSchema.parse(result);
+
+			expect(parsed.chatStatus).toBe("completed");
+			expect(parsed.chatTitle).toBe("final title");
+		});
+
+		test("wait=complete also polls when existing-chat-id is set", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			const finalChat = {
+				...mockChat,
+				status: "completed" as const,
+				title: "final title",
+			};
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce(finalChat);
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+
+			// The follow-up message branch must honor wait=complete just
+			// like the new-chat branch. action.yaml describes wait without
+			// scoping to new chats; the implementation must match.
+			expect(coderClient.mockCreateChatMessage).toHaveBeenCalled();
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(2);
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS]);
+
+			const parsed = ActionOutputsSchema.parse(result);
+			expect(parsed.chatCreated).toBe(false);
+			expect(parsed.chatStatus).toBe("completed");
+			expect(parsed.chatTitle).toBe("final title");
+		});
+
+		test("wait=complete fails with chat-error-kind=api_error when getChat throws", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat.mockRejectedValue(
+				new Error("connection reset by peer"),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			// A transport failure during polling must surface as
+			// ActionFailureError so workflows can branch on chat-error-kind.
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("api_error");
+			expect(err.message).toContain("connection reset by peer");
+			// The loop tolerates MAX_CONSECUTIVE_POLL_FAILURES - 1 failures
+			// before failing. With every poll rejecting, that means 3
+			// getChat calls and 2 sleeps in between.
+			expect(err.message).toContain("3 attempts");
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(
+				MAX_CONSECUTIVE_POLL_FAILURES,
+			);
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS, POLL_INTERVAL_MS]);
+			// pollWithContext re-throws with the at-creation chat so
+			// chat-id and chat-status outputs survive the failed fetch.
+			expect(err.chat).toBeDefined();
+			expect(err.chat?.status).toBe("running");
+			expect(err.chatId).toBeDefined();
+			expect(err.chatUrl).toContain("/chats/");
+			expect(err.coderUsername).toBe(mockUser.username);
+		});
+
+		test("wait=complete returns successfully when chat reaches waiting", async () => {
+			// `waiting` is terminal but ambiguous (agent done vs agent
+			// waiting for input); pin the success path explicitly so a
+			// regression that drops it from TERMINAL_STATUSES fails here.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat.mockResolvedValueOnce({
+				...mockChat,
+				status: "waiting",
+			});
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+			const parsed = ActionOutputsSchema.parse(result);
+
+			expect(parsed.chatStatus).toBe("waiting");
+		});
+
+		test("wait=complete fails with default message when chat error has no last_error", async () => {
+			// Covers the `last_error || fallback` branch.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat.mockResolvedValueOnce({
+				...mockChat,
+				status: "error",
+				last_error: null,
+			});
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("api_error");
+			expect(err.message).toBe("Chat ended in error state");
+		});
+
+		test("wait=complete + existingChatId waits past stale terminal (TOCTOU)", async () => {
+			// Sending a follow-up to a chat already in `waiting` should
+			// not return immediately on the first poll.
+			// requireNonTerminalFirst forces the loop to observe the
+			// agent transitioning before accepting any terminal.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "waiting" })
+				.mockResolvedValueOnce({ ...mockChat, status: "running" })
+				.mockResolvedValueOnce({
+					...mockChat,
+					status: "completed",
+					title: "after follow-up",
+				});
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(3);
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS, POLL_INTERVAL_MS]);
+
+			const parsed = ActionOutputsSchema.parse(result);
+			expect(parsed.chatStatus).toBe("completed");
+			expect(parsed.chatTitle).toBe("after follow-up");
+		});
+
+		test("wait=complete on new-chat path accepts terminal on first poll (no requireNonTerminalFirst)", async () => {
+			// New-chat branch leaves requireNonTerminalFirst false:
+			// createChat returns a fresh chat, so a terminal on the
+			// first poll is real.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat.mockResolvedValueOnce({
+				...mockChat,
+				status: "completed",
+			});
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			await action.run();
+
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(1);
+			expect(clock.sleeps).toEqual([]);
+		});
+
+		test("wait=complete tolerates transient getChat failures up to the threshold", async () => {
+			// First two getChat calls reject (transient outage); the third
+			// returns a terminal status. The loop must stay alive across
+			// the failures rather than failing fast on the first one.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue({
+				...mockChat,
+				status: "running",
+			});
+			coderClient.mockGetChat
+				.mockRejectedValueOnce(new Error("503 Service Unavailable"))
+				.mockRejectedValueOnce(new Error("503 Service Unavailable"))
+				.mockResolvedValueOnce({ ...mockChat, status: "completed" });
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(3);
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS, POLL_INTERVAL_MS]);
+			const parsed = ActionOutputsSchema.parse(result);
+			expect(parsed.chatStatus).toBe("completed");
+		});
+
+		test("wait=complete + existingChatId surfaces api_error context when getChat throws", async () => {
+			// Existing-chat-id branch calls pollWithContext without
+			// atCreation, so the rewrap path is skipped: err.chat stays
+			// undefined but err.chatId, chatUrl, and coderUsername are
+			// still decorated for the failure outputs.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat.mockRejectedValue(
+				new Error("connection reset by peer"),
+			);
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("api_error");
+			expect(err.chat).toBeUndefined();
+			expect(String(err.chatId)).toBe(existingChatId);
+			expect(err.chatUrl).toContain("/chats/");
+			expect(err.coderUsername).toBe(mockUser.username);
+		});
+
+		test("wait=complete + requireNonTerminalFirst times out with a stale-terminal message", async () => {
+			// Every poll returns the same terminal status the chat was
+			// already in. The loop hits the timeout without ever
+			// observing a non-terminal observation; the failure message
+			// distinguishes this from a normal "ran out of time" timeout.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat.mockResolvedValue({
+				...mockChat,
+				status: "waiting",
+			});
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 10,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("timeout");
+			expect(err.message).toContain("remained in terminal status");
+			expect(err.message).toContain("`waiting`");
+			expect(err.message).toContain("agent may not have processed");
+			expect(err.chat?.status).toBe("waiting");
+		});
+
+		test("wait=complete + existingChatId accepts a fast terminal-to-terminal transition", async () => {
+			// Chat is in `waiting`, follow-up sent, agent completes within
+			// one poll interval. The second poll sees `completed`. Tracking
+			// only `sawNonTerminal` would treat both polls as stale; the
+			// loop must accept the second terminal because it differs from
+			// the first.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "waiting" })
+				.mockResolvedValueOnce({
+					...mockChat,
+					status: "completed",
+					title: "after follow-up",
+				});
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetChat).toHaveBeenCalledTimes(2);
+			expect(clock.sleeps).toEqual([POLL_INTERVAL_MS]);
+			const parsed = ActionOutputsSchema.parse(result);
+			expect(parsed.chatStatus).toBe("completed");
+			expect(parsed.chatTitle).toBe("after follow-up");
+		});
+
+		test("wait=complete + existingChatId surfaces api_error when terminal transitions to error", async () => {
+			// Chat is in `waiting`, follow-up sent, agent fails within one
+			// poll interval. Second poll sees `error` (different terminal):
+			// the loop must reach throwOnChatError, not time out.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat
+				.mockResolvedValueOnce({ ...mockChat, status: "waiting" })
+				.mockResolvedValueOnce({
+					...mockChat,
+					status: "error",
+					last_error: "agent crashed",
+				});
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 600,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("api_error");
+			expect(err.message).toBe("agent crashed");
+		});
+
+		test("wait=complete timeout sets chat-id even when latest is undefined", async () => {
+			// All polls fail transiently; the loop times out before
+			// MAX_CONSECUTIVE_POLL_FAILURES is reached. latest stays
+			// undefined, so error.chat is undefined too, but error.chatId
+			// must be populated from the options so chat-id output is set.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+			coderClient.mockGetChat.mockRejectedValue(new Error("503"));
+
+			const existingChatId = "990e8400-e29b-41d4-a716-446655440000";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				existingChatId,
+				wait: "complete",
+				waitTimeoutSeconds: 4,
+				commentOnIssue: false,
+			});
+			const clock = createFakeClock();
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				clock,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (err) {
+				caught = err;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			const err = caught as ActionFailureError;
+			expect(err.kind).toBe("timeout");
+			expect(err.chat).toBeUndefined();
+			expect(String(err.chatId)).toBe(existingChatId);
 		});
 	});
 

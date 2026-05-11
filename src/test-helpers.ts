@@ -9,8 +9,28 @@ import type {
 	CreateChatMessageResponse,
 	ChatId,
 } from "./coder-client";
+import type { Clock } from "./action";
 import type { ActionInputs } from "./schemas";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./schemas";
+
+/**
+ * Fake clock that records every sleep duration and treats sleeps as
+ * instantaneous, so the 5-second polling cadence is deterministic in
+ * tests. Time advances synchronously with each sleep.
+ */
+export function createFakeClock(): Clock & { sleeps: number[] } {
+	const sleeps: number[] = [];
+	let currentMs = 0;
+	return {
+		now: () => currentMs,
+		sleep: (ms: number) => {
+			sleeps.push(ms);
+			currentMs += ms;
+			return Promise.resolve();
+		},
+		sleeps,
+	};
+}
 
 /**
  * Mock data for tests

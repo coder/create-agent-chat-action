@@ -1,8 +1,8 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { CoderAgentChatAction } from "./action";
+import { ActionFailureError, CoderAgentChatAction } from "./action";
 import { RealCoderClient } from "./coder-client";
-import { setActionOutputs } from "./outputs";
+import { setActionOutputs, setFailureOutputs } from "./outputs";
 import { ActionInputsSchema } from "./schemas";
 
 async function main() {
@@ -47,7 +47,11 @@ async function main() {
 		core.debug("Action completed successfully");
 		core.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
 	} catch (error) {
-		if (error instanceof Error) {
+		if (error instanceof ActionFailureError) {
+			setFailureOutputs(error);
+			core.setFailed(error.message);
+			console.error("Action failed:", error);
+		} else if (error instanceof Error) {
 			core.setFailed(error.message);
 			console.error("Action failed:", error);
 			if (error.stack) {

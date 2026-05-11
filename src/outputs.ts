@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import type { ActionFailureError } from "./action";
 import type { ActionOutputs } from "./schemas";
 
 // Maps each ActionOutputs property to its action.yaml output name.
@@ -41,5 +42,25 @@ export function setActionOutputs(outputs: ActionOutputs): void {
 		// but emit "" rather than crashing if a test bypasses the schema.
 		const stringified = typeof value === "string" ? value : String(value ?? "");
 		core.setOutput(name, stringified);
+	}
+}
+
+// Emits failure-path outputs from an ActionFailureError. Skips
+// setActionOutputs because that helper coerces missing required fields
+// to "" and would shadow the real failure signal.
+export function setFailureOutputs(error: ActionFailureError): void {
+	core.setOutput("chat-error-kind", error.kind);
+	core.setOutput("chat-error-message", error.message);
+	if (error.chatId) {
+		core.setOutput("chat-id", error.chatId);
+	}
+	if (error.chat) {
+		core.setOutput("chat-status", error.chat.status);
+	}
+	if (error.chatUrl) {
+		core.setOutput("chat-url", error.chatUrl);
+	}
+	if (error.coderUsername) {
+		core.setOutput("coder-username", error.coderUsername);
 	}
 }

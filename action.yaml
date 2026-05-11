@@ -57,7 +57,7 @@ inputs:
     default: "true"
 
   wait:
-    description: "Wait mode. Reserved: 'complete' is intended to poll until the chat reaches a terminal status or wait-timeout-seconds, but is not yet wired; the action emits a warning and returns immediately."
+    description: "Wait mode. 'none' (default) returns immediately after creating the chat or sending the message. 'complete' polls every 5 seconds until the chat reaches a terminal status (waiting, completed, error) or wait-timeout-seconds elapses."
     required: false
     default: "none"
 
@@ -120,7 +120,7 @@ outputs:
     description: "Base branch name when available."
 
   chat-error-kind:
-    description: "Machine-readable error kind when the chat fails. Reserved; not yet populated."
+    description: "Machine-readable error kind when the chat fails. Currently emits 'api_error' (chat ended in error or polling failed) and 'timeout' (wait=complete reached wait-timeout-seconds)."
 
   chat-error-message:
     description: "Human-readable error message when the chat fails."
