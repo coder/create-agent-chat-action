@@ -9,6 +9,7 @@ import type {
 	CoderSDKUser,
 	CreateChatRequest,
 } from "./coder-client";
+import { RESERVED_LABEL_KEYS, sanitizeLabelKey } from "./sanitize-label-key";
 import {
 	buildCommentMarker,
 	buildDeploymentChatsUrl,
@@ -376,12 +377,8 @@ export class CoderAgentChatAction {
 	 * opt in.
 	 */
 	warnUnwiredInputs(): void {
-		if (this.inputs.idempotencyKey !== undefined) {
-			core.warning(
-				"`idempotency-key` is declared but not yet implemented; " +
-					"the action will always create a new chat.",
-			);
-		}
+		// All v0 inputs are now wired. The helper remains for the test
+		// suite import and future unwired inputs.
 	}
 
 	/**
@@ -613,17 +610,40 @@ export class CoderAgentChatAction {
 	 *
 	 * Returns `{ username, user? }`. `user` is set when the identity path
 	 * fetched a `CoderSDKUser` (sources 2-4); the explicit `coder-username`
-	 * path (source 1) skips the lookup so `user` is undefined.
+	 * path (source 1) always now also fetches the user via
+	 * `getCoderUserByUsername` so `user.id` is available for the
+	 * idempotency-by-label per-user scope.
 	 * `resolveOrganizationID` reuses `user` to read `organization_ids`
-	 * without a redundant lookup, and fetches lazily when it is undefined.
+	 * without a redundant lookup.
 	 */
 	async resolveCoderUsername(): Promise<{
 		username: string;
-		user?: CoderSDKUser;
+		user: CoderSDKUser;
 	}> {
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-			return { username: this.inputs.coderUsername };
+			// Fetch the full user so `user.id` is available downstream for
+			// the `coder-agent-chat-action-user` per-user idempotency scope
+			// (S7).
+			let coderUser: CoderSDKUser;
+			try {
+				coderUser = await this.coder.getCoderUserByUsername(
+					this.inputs.coderUsername,
+				);
+			} catch (err) {
+				// Symmetric with the named-org 404 wrap in `resolveOrganizationID`.
+				if (err instanceof CoderAPIError && err.statusCode === 404) {
+					throw new ActionFailureError(
+						"user_not_found",
+						`Coder user '${this.inputs.coderUsername}' not found. ` +
+							"Check the `coder-username` input value.",
+						undefined,
+						{ cause: err },
+					);
+				}
+				throw err;
+			}
+			return { username: coderUser.username, user: coderUser };
 		}
 		if (this.inputs.githubUserID !== undefined) {
 			core.info(
@@ -995,6 +1015,71 @@ export class CoderAgentChatAction {
 			};
 		}
 
+		// Idempotency by label: if `idempotency-key` is set, look up an
+		// existing non-archived chat scoped to this `gh-target` and the
+		// resolved Coder user, and reuse it before creating a duplicate.
+		// The lookup ANDs the sanitized key with `gh-target` and
+		// `coder-agent-chat-action-user` so a shared `idempotency-key`
+		// across targets or users does not cross-contaminate.
+		const sanitizedKey = this.inputs.idempotencyKey
+			? sanitizeLabelKey(this.inputs.idempotencyKey)
+			: undefined;
+		if (sanitizedKey && RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+			throw new Error(
+				`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` +
+					`Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` +
+					"Choose a different idempotency-key value.",
+			);
+		}
+		const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
+
+		if (sanitizedKey) {
+			const follow = await this.findIdempotentMatch(
+				sanitizedKey,
+				ghTarget,
+				resolvedUser.id,
+			);
+			if (follow) {
+				core.info(`Reusing existing chat by idempotency label: ${follow.id}`);
+				await this.coder.createChatMessage(follow.id, {
+					content: [{ type: "text", text: this.inputs.chatPrompt }],
+					model_config_id: this.inputs.modelConfigId,
+				});
+				core.info("Message sent successfully");
+				const chatUrl = this.generateChatUrl(follow.id);
+
+				// Refresh so outputs reflect post-message state. The message
+				// already succeeded; on fetch failure, fall back to the
+				// pre-message chat rather than failing the run.
+				let refreshed: CoderChat = follow;
+				try {
+					const fetched = await this.coder.getChat(follow.id);
+					core.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
+					refreshed = fetched;
+				} catch (error) {
+					core.warning(
+						`Failed to fetch chat after sending message; outputs reflect pre-message state: ${error}`,
+					);
+				}
+
+				if (this.inputs.commentOnIssue) {
+					core.info(
+						`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+					);
+					await this.commentOnIssue({
+						chatUrl,
+						owner: githubOrg,
+						repo: githubRepo,
+						issueNumber: githubIssueNumber,
+						chatCreated: false,
+						chat: refreshed,
+					});
+				}
+
+				return this.buildOutputs(coderUsername, refreshed, false);
+			}
+		}
+
 		// Resolve `organization_id` only on the create branch: the
 		// existing-chat path inherits the chat's org via `createChatMessage`,
 		// and resolving eagerly would fire an extra API call and a spurious
@@ -1010,6 +1095,13 @@ export class CoderAgentChatAction {
 			workspace_id: this.inputs.workspaceId,
 			model_config_id: this.inputs.modelConfigId,
 		};
+		if (sanitizedKey) {
+			req.labels = this.buildIdempotencyLabels(
+				sanitizedKey,
+				ghTarget,
+				resolvedUser.id,
+			);
+		}
 
 		const createdChat = await this.coder.createChat(req);
 		core.info(
@@ -1051,5 +1143,81 @@ export class CoderAgentChatAction {
 		}
 
 		return this.buildOutputs(coderUsername, finalChat, true);
+	}
+
+	/**
+	 * Most-recent non-archived match for this key+target+user, or undefined.
+	 * Warns on multiple matches (concurrent triggers can race).
+	 */
+	private async findIdempotentMatch(
+		sanitizedKey: string,
+		ghTarget: string,
+		coderUserId: string,
+	): Promise<CoderChat | undefined> {
+		const keyLabel = `${sanitizedKey}:true`;
+		const targetLabel = `gh-target:${ghTarget}`;
+		const userLabel = `coder-agent-chat-action-user:${coderUserId}`;
+		let chats: CoderChat[];
+		try {
+			chats = await this.coder.listChats({
+				label: [keyLabel, targetLabel, userLabel],
+				archived: false,
+			});
+		} catch (err) {
+			const inner = err instanceof Error ? err.message : String(err);
+			throw new Error(
+				`Failed to look up chats by idempotency labels [${keyLabel}, ${targetLabel}, ${userLabel}]: ${inner}`,
+				{ cause: err },
+			);
+		}
+		// Belt-and-braces: the API filters archived by default.
+		const live = chats.filter((chat) => chat.archived !== true);
+		if (live.length === 0) {
+			return undefined;
+		}
+		// PostgreSQL `timestamptz` serializes with uniform fractional
+		// precision, so lex comparison sorts correctly. ISO 8601 strings
+		// are not lex-comparable in general.
+		live.sort((a, b) => {
+			if (a.updated_at < b.updated_at) return 1;
+			if (a.updated_at > b.updated_at) return -1;
+			return 0;
+		});
+		if (live.length > 1) {
+			const ignored = live
+				.slice(1)
+				.map((c) => c.id)
+				.join(", ");
+			core.warning(
+				`Multiple non-archived chats matched idempotency-key=${this.inputs.idempotencyKey} for ${ghTarget}. ` +
+					`Reusing the most recent (${live[0].id}) and ignoring: ${ignored}. ` +
+					"Concurrent triggers can race; subsequent runs converge on the " +
+					"most recent match.",
+			);
+		}
+		return live[0];
+	}
+
+	private buildIdempotencyLabels(
+		sanitizedKey: string,
+		ghTarget: string,
+		coderUserId: string,
+	): Record<string, string> {
+		// Defense in depth: `runInner` rejects collisions before any API
+		// call; this guards direct callers.
+		if (RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+			throw new Error(
+				`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` +
+					`Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` +
+					"Choose a different idempotency-key value.",
+			);
+		}
+		const labels: Record<string, string> = {
+			"coder-agent-chat-action": "true",
+			"gh-target": ghTarget,
+			"coder-agent-chat-action-user": coderUserId,
+		};
+		labels[sanitizedKey] = "true";
+		return labels;
 	}
 }

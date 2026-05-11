@@ -67,7 +67,7 @@ inputs:
     default: "600"
 
   idempotency-key:
-    description: "Optional key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat."
+    description: "Optional key used to deduplicate chats. When set and existing-chat-id is unset, the action looks up the most recent non-archived chat scoped to this `gh-target` and resolved Coder user carrying this label and sends a follow-up message instead of creating a duplicate."
     required: false
 
 outputs:

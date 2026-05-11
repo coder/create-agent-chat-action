@@ -1,5 +1,9 @@
 import { mock } from "bun:test";
-import { type CoderClient, ChatIdSchema } from "./coder-client";
+import {
+	type CoderClient,
+	type ListChatsOptions,
+	ChatIdSchema,
+} from "./coder-client";
 import type {
 	CoderSDKUser,
 	CoderSDKGetUsersResponse,
@@ -189,8 +193,8 @@ export class MockCoderClient implements CoderClient {
 		return this.mockGetChat(chatId);
 	}
 
-	async listChats(): Promise<CoderChat[]> {
-		return this.mockListChats();
+	async listChats(opts?: ListChatsOptions): Promise<CoderChat[]> {
+		return this.mockListChats(opts);
 	}
 }
 

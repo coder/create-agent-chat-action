@@ -18,7 +18,17 @@ export interface CoderClient {
 
 	getChat(chatId: ChatId): Promise<CoderChat>;
 
-	listChats(): Promise<CoderChat[]>;
+	listChats(opts?: ListChatsOptions): Promise<CoderChat[]>;
+}
+
+export interface ListChatsOptions {
+	/**
+	 * `key:value` label filter. Multiple entries become repeated
+	 * `?label=...` params and are ANDed by the API.
+	 */
+	label?: string | string[];
+	/** If false, send `?q=archived:false` explicitly. */
+	archived?: boolean;
 }
 
 export class RealCoderClient implements CoderClient {
@@ -105,8 +115,23 @@ export class RealCoderClient implements CoderClient {
 			throw new CoderAPIError("Coder username cannot be empty", 400);
 		}
 		const endpoint = `/api/v2/users/${encodeURIComponent(username)}`;
-		const response = await this.request<unknown>(endpoint);
-		return CoderSDKUserSchema.parse(response);
+		try {
+			const response = await this.request<unknown>(endpoint);
+			return CoderSDKUserSchema.parse(response);
+		} catch (err) {
+			// Re-throw 404 with the `user_not_found` kind so `classifyError`
+			// routes a typo in `coder-username` to the helpful failure
+			// comment rather than a generic `api_error`.
+			if (err instanceof CoderAPIError && err.statusCode === 404) {
+				throw new CoderAPIError(
+					`No Coder user found with username "${username}"`,
+					404,
+					err.response,
+					"user_not_found",
+				);
+			}
+			throw err;
+		}
 	}
 
 	async getOrganizationByName(name: string): Promise<CoderOrganization> {
@@ -145,8 +170,21 @@ export class RealCoderClient implements CoderClient {
 		return CoderChatSchema.parse(response);
 	}
 
-	async listChats(): Promise<CoderChat[]> {
-		const endpoint = "/api/experimental/chats";
+	async listChats(opts?: ListChatsOptions): Promise<CoderChat[]> {
+		const params: string[] = [];
+		if (opts?.label !== undefined) {
+			const labels = Array.isArray(opts.label) ? opts.label : [opts.label];
+			for (const l of labels) {
+				params.push(`label=${encodeURIComponent(l)}`);
+			}
+		}
+		if (opts?.archived === false) {
+			// Explicit `?q=archived:false` pins the contract even though
+			// the API filters archived chats by default.
+			params.push(`q=${encodeURIComponent("archived:false")}`);
+		}
+		const query = params.length ? `?${params.join("&")}` : "";
+		const endpoint = `/api/experimental/chats${query}`;
 		const response = await this.request<unknown>(endpoint);
 		const parsed = CoderChatListResponseSchema.parse(response);
 		return parsed;
@@ -256,6 +294,9 @@ export const CreateChatRequestSchema = z.object({
 	content: z.array(ChatInputPartSchema).min(1),
 	workspace_id: z.string().uuid().optional(),
 	model_config_id: z.string().uuid().optional(),
+	// Sent only when `idempotency-key` is provided. Platform key regex:
+	// `^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`, max 50 entries.
+	labels: z.record(z.string(), z.string()).optional(),
 });
 export type CreateChatRequest = z.infer<typeof CreateChatRequestSchema>;
 

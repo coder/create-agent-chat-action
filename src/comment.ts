@@ -5,6 +5,7 @@ import {
 	type ChatStatus,
 	CoderAPIError,
 } from "./coder-client";
+import { sanitizeLabelKey } from "./sanitize-label-key";
 import type { ActionInputs } from "./schemas";
 
 type Octokit = ReturnType<typeof getOctokit>;
@@ -64,7 +65,7 @@ export function deriveCommentKey(
 	},
 ): string {
 	if (inputs.idempotencyKey) {
-		return inputs.idempotencyKey;
+		return sanitizeLabelKey(inputs.idempotencyKey);
 	}
 	const match = inputs.githubURL.match(GITHUB_URL_REGEX);
 	let base: string;

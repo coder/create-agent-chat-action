@@ -205,7 +205,7 @@ other kinds are documented under [Outputs](#outputs).
 | comment-on-issue      | Whether to comment on the GitHub issue or pull request with the chat URL and status.                                                                                                     | false    | true    |
 | wait                  | Wait mode. `none` (default) returns immediately. `complete` polls every 5 seconds until the chat reaches a terminal status (`waiting`, `completed`, `error`) or `wait-timeout-seconds` elapses. | false    | none    |
 | wait-timeout-seconds  | Maximum seconds to wait when wait=complete before failing with a timeout.                                                                                                                | false    | 600     |
-| idempotency-key       | Optional key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat.                                                        | false    | -       |
+| idempotency-key       | Optional key used to deduplicate chats. When set and existing-chat-id is unset, the action looks up the most recent non-archived chat scoped to this `gh-target` and resolved Coder user carrying this label and sends a follow-up message instead of creating a duplicate. | false    | -       |
 
 ## Outputs
 
@@ -270,3 +270,90 @@ pull request maintain separate failure comments. To intentionally
 share one comment across workflows, set `idempotency-key` to
 the same value in each workflow. If two workflow files share the
 same `name:`, their markers will collide; give them distinct names.
+
+## Idempotency by label
+
+Re-applying a label or re-running a workflow without `idempotency-key`
+set always creates a new chat (parity with `create-task-action`'s default).
+Setting `idempotency-key` opts the workflow into label-based
+dedup: the action lists chats filtered by the label, and if a non-archived
+match exists, sends a follow-up message via the chat API instead of
+creating a duplicate.
+
+### Labels written on chat creation
+
+When `idempotency-key` is set and no existing chat matches, the action
+creates the chat with four labels:
+
+| Label key                      | Value                       |
+| ------------------------------ | --------------------------- |
+| `coder-agent-chat-action`      | `"true"`                    |
+| `gh-target`                    | `"<owner>/<repo>#<number>"` |
+| `coder-agent-chat-action-user` | `"<coder-user-uuid>"`       |
+| `<sanitized-key>`              | `"true"`                    |
+
+The label namespace is action-owned. The `<sanitized-key>` is derived
+from the `idempotency-key` input via the rule below.
+The `coder-agent-chat-action-user` value is the UUID of the Coder user
+resolved from `github-user-id` or `coder-username`, so two GitHub users
+sharing an `idempotency-key` on the same target each get their own chat.
+
+### Sanitization rule
+
+The Coder chats API requires label keys to match
+`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$` (max 64 bytes). The action sanitizes the
+`idempotency-key` input as follows so workflow authors can pass
+arbitrary strings:
+
+1. Lowercase the input.
+2. Replace any character outside `[a-z0-9._/-]` with `-`.
+3. Trim leading characters until the first `[a-z0-9]`. If the result is
+   empty, fall back to the literal string `key`.
+4. Truncate to 64 bytes.
+
+For example, `My Custom Key!` becomes `my-custom-key-`.
+
+If the sanitized key collides with one of the reserved label keys
+(`coder-agent-chat-action`, `gh-target`, `coder-agent-chat-action-user`),
+the action fails fast with a clear error. Choose a different
+`idempotency-key` value.
+
+Note: two different inputs that both sanitize to an empty string (every
+character outside `[a-z0-9._/-]` after lowering) collapse to the literal
+fallback `key` and share the same idempotency scope per `gh-target`.
+The practical risk is small (the input has to contain only special
+characters), but pass an `idempotency-key` that contains at least
+one `[a-z0-9._/-]` character to avoid the collision.
+
+The lookup uses the same sanitized key, so the chat the action creates is
+the chat the next run finds.
+
+### Lookup query
+
+The chats API exposes a `?label=key:value` filter. The action calls
+`GET /api/experimental/chats?label=<sanitized-key>:true&label=gh-target:<owner>/<repo>#<number>&label=coder-agent-chat-action-user:<coder-user-uuid>&q=archived:false`
+and reuses the most recent (by `updated_at`) match. All three label
+filters are ANDed by the API, which scopes the lookup per target and
+per Coder user so a static `idempotency-key` (for example
+`"review-bot"`) does not cross-contaminate Issue #2's follow-up into
+Issue #1's chat, and User B's run does not hijack User A's chat.
+Archived
+chats are excluded by the explicit query (and double-checked
+client-side); if the only match is archived the action creates a new
+chat.
+
+### Known limitation: parallel triggers race
+
+If two workflow runs trigger at the same time with the same
+`idempotency-key`, both can pass the lookup before either creates
+its chat, and both will create. The action picks the most recent match on
+subsequent runs and emits a `core.warning` listing the duplicates so the
+workflow author can clean up.
+
+### Future: `Idempotency-Key` header
+
+When the chats API exposes an `Idempotency-Key` HTTP header on the chat
+create endpoint, the action will switch to it to make the create itself
+idempotent and remove the race. The label key on the chat survives that
+switch; only the lookup mechanism changes.
+
