@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeBaseUrl } from "./comment";
 
 export interface CoderClient {
 	getCoderUserByGitHubId(
@@ -32,12 +33,13 @@ export interface ListChatsOptions {
 }
 
 export class RealCoderClient implements CoderClient {
+	private readonly serverURL: string;
 	private readonly headers: Record<string, string>;
 
-	constructor(
-		private readonly serverURL: string,
-		apiToken: string,
-	) {
+	constructor(serverURL: string, apiToken: string) {
+		// Strip trailing slashes so `${this.serverURL}${endpoint}` never
+		// produces a double-slash URL when a user passes `https://coder/`.
+		this.serverURL = normalizeBaseUrl(serverURL);
 		this.headers = {
 			"Coder-Session-Token": apiToken,
 			"Content-Type": "application/json",
@@ -88,7 +90,7 @@ export class RealCoderClient implements CoderClient {
 		// depth in case `codersdk.User` later starts serializing `deleted`.
 		const filter = `github_com_user_id:${githubUserId}`;
 		const endpoint = `/api/v2/users?q=${encodeURIComponent(filter)}`;
-		const response = await this.request<unknown[]>(endpoint);
+		const response = await this.request<unknown>(endpoint);
 		const userList = CoderSDKGetUsersResponseSchema.parse(response);
 		const liveUsers = userList.users.filter((u) => u.deleted !== true);
 		if (liveUsers.length === 0) {

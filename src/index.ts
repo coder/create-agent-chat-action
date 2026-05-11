@@ -66,7 +66,9 @@ async function main() {
 			core.setFailed("Unknown error occurred");
 			console.error("Unknown error:", error);
 		}
-		process.exit(1);
+		// `core.setFailed` already marks the run as failed. Calling
+		// `process.exit(1)` here would skip any remaining unhandled-rejection
+		// logging in node's event loop.
 	}
 }
 

@@ -104,6 +104,40 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
+		test("rejects URL with extra path segments after the issue number", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/issues/123/extra",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			expect(() => action.parseGithubURL()).toThrowError("Invalid GitHub URL");
+		});
+
+		test("accepts a trailing slash after the issue number", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/issues/123/",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			const result = action.parseGithubURL();
+
+			expect(result).toEqual({
+				githubOrg: "owner",
+				githubRepo: "repo",
+				githubIssueNumber: 123,
+			});
+		});
+
 		test("handles non-github.com URL", () => {
 			const inputs = createMockInputs({
 				githubURL: "https://code.acme.com/owner/repo/issues/123",

@@ -12,7 +12,10 @@ type Octokit = ReturnType<typeof getOctokit>;
 
 // Shared regex for GitHub issue and PR URLs. Used by `deriveCommentKey` and
 // `parseGithubURL` so adding another path (e.g. `/discussions/`) is one edit.
-export const GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
+// Anchored at the tail (`\/?$`) so URLs with extra path segments after the
+// number (e.g. `.../issues/123/files`) are rejected rather than silently
+// truncated.
+export const GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?$/;
 
 // Discriminated union so spend-exceeded fields are only representable on the
 // spend-exceeded variant; the body builder reads them directly without a

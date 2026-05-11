@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 import type { getOctokit } from "@actions/github";
-import { CoderAPIError } from "./coder-client";
+import { ChatIdSchema, CoderAPIError } from "./coder-client";
 import type {
 	ChatId,
 	ChatStatus,
@@ -950,7 +950,9 @@ export class CoderAgentChatAction {
 			core.info(
 				`Sending message to existing chat: ${this.inputs.existingChatId}`,
 			);
-			const chatId = this.inputs.existingChatId as ChatId;
+			// Runtime-parse so a malformed `existing-chat-id` fails fast with a
+			// Zod error instead of being coerced past the brand at compile time.
+			const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
 
 			await this.coder.createChatMessage(chatId, {
 				content: [{ type: "text", text: this.inputs.chatPrompt }],
