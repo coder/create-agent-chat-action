@@ -55,12 +55,27 @@ export class RealCoderClient implements CoderClient {
 		options?: RequestInit,
 	): Promise<T> {
 		const url = `${this.serverURL}${endpoint}`;
-		const response = await fetch(url, {
-			...options,
-			headers: { ...this.headers, ...options?.headers },
-			signal:
-				options?.signal ?? AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
-		});
+		let response: Response;
+		try {
+			response = await fetch(url, {
+				...options,
+				headers: { ...this.headers, ...options?.headers },
+				signal:
+					options?.signal ?? AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
+			});
+		} catch (err) {
+			// Rewrap AbortSignal.timeout's DOMException so callers see a
+			// CoderAPIError carrying the endpoint and the configured
+			// timeout. Without this, classifyError downgrades the abort to
+			// a generic `api_error` with the runtime-default message.
+			if (err instanceof DOMException && err.name === "TimeoutError") {
+				throw new CoderAPIError(
+					`Request to ${endpoint} timed out after ${DEFAULT_REQUEST_TIMEOUT_MS}ms`,
+					0,
+				);
+			}
+			throw err;
+		}
 
 		if (!response.ok) {
 			const body = await response.text().catch(() => "");
@@ -88,9 +103,9 @@ export class RealCoderClient implements CoderClient {
 			throw new CoderAPIError("GitHub user ID cannot be undefined", 400);
 		}
 		if (githubUserId === 0) {
-			// Defense in depth: the input schema rejects 0 upstream, but a
-			// bare-string throw would skip the `instanceof Error` branch in
-			// index.ts and produce a useless error message.
+			// Defense in depth: the input schema rejects 0 upstream. Throw
+			// CoderAPIError so callers can branch on the kind discriminator
+			// and `instanceof CoderAPIError` checks downstream stay sound.
 			throw new CoderAPIError("GitHub user ID cannot be 0", 400);
 		}
 		// coderd's GetUsers SQL hardcodes `users.deleted = false`, so the

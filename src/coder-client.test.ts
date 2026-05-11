@@ -1,5 +1,9 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test";
-import { RealCoderClient, CoderAPIError } from "./coder-client";
+import {
+	RealCoderClient,
+	CoderAPIError,
+	DEFAULT_REQUEST_TIMEOUT_MS,
+} from "./coder-client";
 import {
 	mockUser,
 	mockUserList,
@@ -373,12 +377,29 @@ describe("CoderClient", () => {
 		});
 	});
 
-	describe("request timeout", () => {
-		test("aborts requests that exceed the default timeout window", async () => {
+	describe("default request timeout", () => {
+		test("wires DEFAULT_REQUEST_TIMEOUT_MS into AbortSignal.timeout", async () => {
+			const originalTimeout = AbortSignal.timeout;
+			let capturedMs: number | undefined;
+			try {
+				AbortSignal.timeout = ((ms: number) => {
+					capturedMs = ms;
+					return originalTimeout.call(AbortSignal, 10);
+				}) as typeof AbortSignal.timeout;
+				mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
+				await client.getChat(mockChat.id);
+			} finally {
+				AbortSignal.timeout = originalTimeout;
+			}
+			expect(capturedMs).toBe(DEFAULT_REQUEST_TIMEOUT_MS);
+		});
+
+		test("rewraps an AbortSignal.timeout abort as CoderAPIError naming the endpoint and timeout", async () => {
 			const originalTimeout = AbortSignal.timeout;
 			try {
-				// Drive the abort deterministically with a 10ms timeout so the
-				// test does not wait the production 30s.
+				// 10ms keeps the test fast; the value asserted in the body is
+				// DEFAULT_REQUEST_TIMEOUT_MS because that is what the
+				// CoderAPIError message reports.
 				AbortSignal.timeout = ((_ms: number) =>
 					originalTimeout.call(AbortSignal, 10)) as typeof AbortSignal.timeout;
 				mockFetch.mockImplementation(
@@ -397,7 +418,19 @@ describe("CoderClient", () => {
 							});
 						}),
 				);
-				await expect(client.getChat(mockChat.id)).rejects.toThrow();
+				let caught: unknown;
+				try {
+					await client.getChat(mockChat.id);
+				} catch (e) {
+					caught = e;
+				}
+				expect(caught).toBeInstanceOf(CoderAPIError);
+				expect((caught as CoderAPIError).message).toContain(
+					`/api/experimental/chats/${mockChat.id}`,
+				);
+				expect((caught as CoderAPIError).message).toContain(
+					`${DEFAULT_REQUEST_TIMEOUT_MS}ms`,
+				);
 			} finally {
 				AbortSignal.timeout = originalTimeout;
 			}
