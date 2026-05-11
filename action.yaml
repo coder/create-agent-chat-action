@@ -36,7 +36,7 @@ inputs:
     required: false
 
   coder-organization:
-    description: "Coder organization name. Reserved; not yet wired through to chat creation, the action emits a warning if set."
+    description: "Coder organization name. Looked up by name to resolve the organization UUID for chat creation. Recommended when the resolved Coder user belongs to more than one organization, since the fallback choice is non-deterministic."
     required: false
 
   workspace-id:
@@ -120,7 +120,7 @@ outputs:
     description: "Base branch name when available."
 
   chat-error-kind:
-    description: "Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found` (reserved, not yet emitted), `api_error`, `timeout`)."
+    description: "Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found`, `api_error`, `timeout`)."
 
   chat-error-message:
     description: "Human-readable error message when the chat fails."

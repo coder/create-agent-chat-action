@@ -1,10 +1,12 @@
 import * as core from "@actions/core";
 import type { getOctokit } from "@actions/github";
+import { CoderAPIError } from "./coder-client";
 import type {
 	ChatId,
 	ChatStatus,
 	CoderChat,
 	CoderClient,
+	CoderSDKUser,
 	CreateChatRequest,
 } from "./coder-client";
 import {
@@ -354,13 +356,6 @@ export class CoderAgentChatAction {
 					"the action will always create a new chat.",
 			);
 		}
-		if (this.inputs.coderOrganization !== undefined) {
-			core.warning(
-				"`coder-organization` is declared but not yet wired through to " +
-					"the API; the chat will be created without an explicit " +
-					"organization.",
-			);
-		}
 	}
 
 	/**
@@ -589,11 +584,20 @@ export class CoderAgentChatAction {
 	 * attacker-controlled prompts under the workflow's Coder session
 	 * token. Setting `coder-username` or `github-user-id` bypasses the
 	 * trust gate: the workflow author has explicitly chosen the identity.
+	 *
+	 * Returns `{ username, user? }`. `user` is set when the identity path
+	 * fetched a `CoderSDKUser` (sources 2-4); the explicit `coder-username`
+	 * path (source 1) skips the lookup so `user` is undefined.
+	 * `resolveOrganizationID` reuses `user` to read `organization_ids`
+	 * without a redundant lookup, and fetches lazily when it is undefined.
 	 */
-	async resolveCoderUsername(): Promise<string> {
+	async resolveCoderUsername(): Promise<{
+		username: string;
+		user?: CoderSDKUser;
+	}> {
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-			return this.inputs.coderUsername;
+			return { username: this.inputs.coderUsername };
 		}
 		if (this.inputs.githubUserID !== undefined) {
 			core.info(
@@ -602,7 +606,7 @@ export class CoderAgentChatAction {
 			const coderUser = await this.coder.getCoderUserByGitHubId(
 				this.inputs.githubUserID,
 			);
-			return coderUser.username;
+			return { username: coderUser.username, user: coderUser };
 		}
 
 		// Refuse before any auto-resolve source so the exclusion is semantic,
@@ -656,7 +660,7 @@ export class CoderAgentChatAction {
 			);
 			try {
 				const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
-				return coderUser.username;
+				return { username: coderUser.username, user: coderUser };
 			} catch (err) {
 				throw new Error(
 					`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` +
@@ -688,7 +692,7 @@ export class CoderAgentChatAction {
 			}
 			try {
 				const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
-				return coderUser.username;
+				return { username: coderUser.username, user: coderUser };
 			} catch (err) {
 				throw new Error(
 					`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` +
@@ -703,6 +707,102 @@ export class CoderAgentChatAction {
 				"`github-user-id` to the GitHub numeric user id of the user the " +
 				"chat should run as.",
 		);
+	}
+
+	/**
+	 * Resolve the organization id to send on createChat. Resolution order:
+	 *
+	 * 1. `coder-organization` input, looked up by name via
+	 *    `GET /api/v2/organizations/{name}`. Recommended when the user
+	 *    belongs to more than one organization, since the fallback choice
+	 *    is non-deterministic; a `core.warning` is emitted in that case.
+	 * 2. The resolved Coder user's `organization_ids[0]`. When identity was
+	 *    resolved via the GitHub-id path the user object is reused; the
+	 *    `coder-username` path looks the user up here via
+	 *    `getCoderUserByUsername`.
+	 *
+	 * Throws `ActionFailureError("org_not_found")` when `coder-organization`
+	 * names an org that does not exist (HTTP 404) or the resolved user has no
+	 * org memberships. Throws `ActionFailureError("user_not_found")` when only
+	 * `coder-username` is set and the user is missing (HTTP 404). Other API
+	 * errors propagate as `CoderAPIError`. The original error is attached via
+	 * `options.cause` on every wrap; `run()`'s `handleFailure` re-classifies
+	 * the failure into the failure-path comment.
+	 */
+	async resolveOrganizationID(
+		coderUsername: string,
+		resolvedUser: CoderSDKUser | undefined,
+	): Promise<string> {
+		if (this.inputs.coderOrganization) {
+			core.info(
+				`Resolving Coder organization by name: ${this.inputs.coderOrganization}`,
+			);
+			try {
+				const org = await this.coder.getOrganizationByName(
+					this.inputs.coderOrganization,
+				);
+				return org.id;
+			} catch (err) {
+				// 404 = the named org does not exist; surface as `org_not_found`.
+				// Other CoderAPIErrors (auth, network, etc.) propagate as-is.
+				if (err instanceof CoderAPIError && err.statusCode === 404) {
+					throw new ActionFailureError(
+						"org_not_found",
+						`Coder organization '${this.inputs.coderOrganization}' not found. ` +
+							"Check the `coder-organization` input value.",
+						undefined,
+						{ cause: err },
+					);
+				}
+				throw err;
+			}
+		}
+
+		// Default to the user's first org membership. Fetch the user lazily
+		// when only `coder-username` was provided; wrap a 404 into
+		// `user_not_found` symmetrically with the named-org 404 above.
+		let user: CoderSDKUser;
+		if (resolvedUser) {
+			user = resolvedUser;
+		} else {
+			try {
+				user = await this.coder.getCoderUserByUsername(coderUsername);
+			} catch (err) {
+				if (err instanceof CoderAPIError && err.statusCode === 404) {
+					throw new ActionFailureError(
+						"user_not_found",
+						`Coder user '${coderUsername}' not found. ` +
+							"Check the `coder-username` input value.",
+						undefined,
+						{ cause: err },
+					);
+				}
+				throw err;
+			}
+		}
+		const orgID = user.organization_ids[0];
+		if (!orgID) {
+			throw new ActionFailureError(
+				"org_not_found",
+				`Coder user '${user.username}' has no organization memberships. ` +
+					"Set the `coder-organization` input to the organization the chat " +
+					"should run in.",
+			);
+		}
+		if (user.organization_ids.length > 1) {
+			// `organization_ids` is server-built via `array_agg` with no
+			// `ORDER BY`, so the choice is non-deterministic across vacuums and
+			// restarts. Recommend pinning via `coder-organization`.
+			core.warning(
+				`Coder user '${user.username}' has ${user.organization_ids.length} organization memberships; ` +
+					`defaulting to ${orgID}. ` +
+					"This choice is non-deterministic. Set the `coder-organization` input to pin it.",
+			);
+		}
+		core.info(
+			`Defaulting to first organization membership of Coder user '${user.username}': ${orgID}`,
+		);
+		return orgID;
 	}
 
 	// Run the action. Failures funnel through `handleFailure` which posts
@@ -788,7 +888,8 @@ export class CoderAgentChatAction {
 	private async runInner(): Promise<ActionOutputs> {
 		this.warnUnwiredInputs();
 
-		const coderUsername = await this.resolveCoderUsername();
+		const { username: coderUsername, user: resolvedUser } =
+			await this.resolveCoderUsername();
 
 		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
 		core.info(`GitHub owner: ${githubOrg}`);
@@ -864,9 +965,17 @@ export class CoderAgentChatAction {
 			};
 		}
 
-		// Create a new chat
+		// Resolve `organization_id` only on the create branch: the
+		// existing-chat path inherits the chat's org via `createChatMessage`,
+		// and resolving eagerly would fire an extra API call and a spurious
+		// `org_not_found` failure for users with no org memberships.
 		core.info("Creating new agent chat...");
+		const organizationID = await this.resolveOrganizationID(
+			coderUsername,
+			resolvedUser,
+		);
 		const req: CreateChatRequest = {
+			organization_id: organizationID,
 			content: [{ type: "text", text: this.inputs.chatPrompt }],
 			workspace_id: this.inputs.workspaceId,
 			model_config_id: this.inputs.modelConfigId,

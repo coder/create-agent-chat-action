@@ -7,6 +7,7 @@ import {
 	mockUserListDuplicate,
 	mockChat,
 	mockChatMessageResponse,
+	mockOrganization,
 	createMockInputs,
 	createMockResponse,
 } from "./test-helpers";
@@ -163,6 +164,7 @@ describe("CoderClient", () => {
 		test("creates chat successfully", async () => {
 			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
 			const result = await client.createChat({
+				organization_id: mockOrganization.id,
 				content: [{ type: "text", text: "Test prompt" }],
 			});
 			expect(result.id).toBe(mockChat.id);
@@ -176,6 +178,7 @@ describe("CoderClient", () => {
 						"Coder-Session-Token": "test-token",
 					}),
 					body: JSON.stringify({
+						organization_id: mockOrganization.id,
 						content: [{ type: "text", text: "Test prompt" }],
 					}),
 				}),
@@ -186,12 +189,23 @@ describe("CoderClient", () => {
 			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
 			const workspaceId = "550e8400-e29b-41d4-a716-446655440000";
 			await client.createChat({
+				organization_id: mockOrganization.id,
 				content: [{ type: "text", text: "Test prompt" }],
 				workspace_id: workspaceId,
 			});
 			const call = mockFetch.mock.calls[0];
 			const body = JSON.parse(call[1].body);
 			expect(body.workspace_id).toBe(workspaceId);
+		});
+
+		test("request body includes organization_id on every call", async () => {
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
+			await client.createChat({
+				organization_id: mockOrganization.id,
+				content: [{ type: "text", text: "Test prompt" }],
+			});
+			const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+			expect(body.organization_id).toBe(mockOrganization.id);
 		});
 	});
 
@@ -240,6 +254,118 @@ describe("CoderClient", () => {
 					}),
 				}),
 			);
+		});
+	});
+
+	describe("getCoderUserByUsername", () => {
+		test("returns the user when found", async () => {
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockUser));
+
+			const result = await client.getCoderUserByUsername(mockUser.username);
+
+			expect(result.id).toBe(mockUser.id);
+			expect(result.username).toBe(mockUser.username);
+			expect(mockFetch).toHaveBeenCalledWith(
+				`https://coder.test/api/v2/users/${mockUser.username}`,
+				expect.objectContaining({
+					headers: expect.objectContaining({
+						"Coder-Session-Token": "test-token",
+					}),
+				}),
+			);
+		});
+
+		test("encodes the username in the URL path", async () => {
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockUser));
+
+			await client.getCoderUserByUsername("user with space");
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				"https://coder.test/api/v2/users/user%20with%20space",
+				expect.anything(),
+			);
+		});
+
+		test("throws CoderAPIError on empty username without making a request", async () => {
+			await expect(client.getCoderUserByUsername("")).rejects.toThrow(
+				CoderAPIError,
+			);
+			expect(mockFetch).not.toHaveBeenCalled();
+		});
+
+		test("throws CoderAPIError with statusCode 404 on missing user", async () => {
+			mockFetch.mockResolvedValueOnce(
+				createMockResponse(
+					{ error: "Not Found" },
+					{ ok: false, status: 404, statusText: "Not Found" },
+				),
+			);
+
+			let caught: unknown;
+			try {
+				await client.getCoderUserByUsername("missing");
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(CoderAPIError);
+			expect((caught as CoderAPIError).statusCode).toBe(404);
+		});
+	});
+
+	describe("getOrganizationByName", () => {
+		test("returns the organization when found", async () => {
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockOrganization));
+
+			const result = await client.getOrganizationByName(mockOrganization.name);
+
+			expect(result.id).toBe(mockOrganization.id);
+			expect(result.name).toBe(mockOrganization.name);
+			expect(mockFetch).toHaveBeenCalledWith(
+				`https://coder.test/api/v2/organizations/${mockOrganization.name}`,
+				expect.objectContaining({
+					headers: expect.objectContaining({
+						"Coder-Session-Token": "test-token",
+					}),
+				}),
+			);
+		});
+
+		test("encodes the organization name in the URL path", async () => {
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockOrganization));
+
+			await client.getOrganizationByName("acme corp");
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				"https://coder.test/api/v2/organizations/acme%20corp",
+				expect.anything(),
+			);
+		});
+
+		test("throws CoderAPIError on empty name without making a request", async () => {
+			await expect(client.getOrganizationByName("")).rejects.toThrow(
+				CoderAPIError,
+			);
+			expect(mockFetch).not.toHaveBeenCalled();
+		});
+
+		test("throws CoderAPIError with statusCode 404 on missing org", async () => {
+			mockFetch.mockResolvedValueOnce(
+				createMockResponse(
+					{ error: "Not Found" },
+					{ ok: false, status: 404, statusText: "Not Found" },
+				),
+			);
+
+			let caught: unknown;
+			try {
+				await client.getOrganizationByName("does-not-exist");
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(CoderAPIError);
+			expect((caught as CoderAPIError).statusCode).toBe(404);
 		});
 	});
 });

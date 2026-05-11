@@ -69,6 +69,22 @@ jobs:
 
 This does not change GitHub's own restrictions on fork PRs: `secrets.*` is unavailable to `pull_request` runs from forks by default. If the workflow needs the Coder token on fork PRs, the workflow author must use `pull_request_target` (or another mechanism) to grant secret access; that decision is outside the action's scope.
 
+## Organization resolution
+
+The chats API requires an `organization_id` on every create. The action picks one in this order:
+
+1. **`coder-organization` input.** Looked up by name via `GET /api/v2/organizations/{name}` to get the UUID. Recommended when the resolved Coder user belongs to more than one organization, since the fallback choice is non-deterministic (the action emits a `core.warning` in that case).
+2. **First org membership of the resolved Coder user.** When `coder-organization` is unset, the action defaults to `organization_ids[0]` of the user resolved by the steps in [Identity resolution](#identity-resolution). When only `coder-username` was provided, the user is fetched via `GET /api/v2/users/{username}` to get their org memberships. The Coder API does not order `organization_ids`, so when the user belongs to more than one organization the choice is non-deterministic across server vacuums and restarts. The action emits a `core.warning` with the chosen org id and recommends setting `coder-organization` to pin it.
+
+The action fails with `chat-error-kind=org_not_found` when:
+
+- `coder-organization` is set to a name that does not exist on the deployment (HTTP 404), or
+- `coder-organization` is unset and the resolved Coder user has no organization memberships.
+
+The action fails with `chat-error-kind=user_not_found` when `coder-username` is set to a user that does not exist on the deployment (HTTP 404) and `coder-organization` is unset (the user lookup happens lazily inside org resolution).
+
+Failure messages name which input to set or fix. Wrapping errors attach the original `CoderAPIError` via `Error.cause`; the workflow log renders the full cause chain when the action prints the error directly.
+
 ## Requirements
 
 - A running Coder deployment with Agents enabled (experimental).
@@ -182,7 +198,7 @@ other kinds are documented under [Outputs](#outputs).
 | github-token          | GitHub token used to post and update issue comments.                                                                                                                                     | true     | -       |
 | github-user-id        | GitHub user ID to resolve to a Coder user. Deleted Coder users are filtered out. Mutually exclusive with coder-username.                                                                | false    | -       |
 | coder-username        | Coder username to use directly. Mutually exclusive with github-user-id; useful for service-account workflows.                                                                            | false    | -       |
-| coder-organization    | Coder organization name. Reserved; not yet wired through to chat creation, the action emits a warning if set.                                                                            | false    | -       |
+| coder-organization    | Coder organization name. Looked up by name to resolve the organization UUID for chat creation. Recommended for multi-org users (see Organization resolution).                           | false    | -       |
 | workspace-id          | Existing workspace ID to pin the chat to. If unset, Agents auto-provisions a workspace.                                                                                                  | false    | -       |
 | model-config-id       | Model configuration ID to use for the chat.                                                                                                                                              | false    | -       |
 | existing-chat-id      | Existing chat ID to send a follow-up message to instead of creating a new chat.                                                                                                          | false    | -       |
@@ -211,7 +227,7 @@ other kinds are documented under [Outputs](#outputs).
 | diff-changed-files  | Number of files changed in tracked changes.                                                                                                              |
 | head-branch         | Head branch name when available.                                                                                                                         |
 | base-branch         | Base branch name when available.                                                                                                                         |
-| chat-error-kind     | Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found` (reserved, not yet emitted), `api_error`, `timeout`). |
+| chat-error-kind     | Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found`, `api_error`, `timeout`).                  |
 | chat-error-message  | Human-readable error message when the chat fails.                                                                                                        |
 
 ## Failure-path comment
@@ -230,12 +246,9 @@ comments do not stack.
 | `spend_exceeded`  | The Coder deployment's chat spend limit has been reached. The comment includes spent and limit amounts.       |
 | `user_not_found`  | No Coder user matched the GitHub identity. Adjust `github-user-id` or pass `coder-username` directly.         |
 | `user_ambiguous`  | Multiple Coder users matched the same GitHub identity. Set `coder-username` to disambiguate.                  |
-| `org_not_found`   | Reserved: the resolved Coder user has no matching organization. Not yet emitted by the action; will fire once organization wiring lands. |
+| `org_not_found`   | Either `coder-organization` names an organization that does not exist on the deployment (HTTP 404), or the resolved Coder user has no organization memberships and `coder-organization` is unset. Set or fix `coder-organization`. |
 | `api_error`       | Any other Coder API error. The comment includes the underlying message.                                       |
 | `timeout`         | `wait: complete` polling did not reach a terminal status before `wait-timeout-seconds` elapsed. |
-
-The `org_not_found` value is a reserved enum member and not yet emitted
-by the action; it will fire once organization wiring lands.
 
 ### Comment marker
 

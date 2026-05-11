@@ -16,9 +16,11 @@ import {
 	createMockInputs,
 	createMockContext,
 	mockUser,
+	mockUserNoOrgs,
 	mockChat,
 	mockChatWithDiff,
 	mockChatMessageResponse,
+	mockOrganization,
 } from "./test-helpers";
 
 describe("CoderAgentChatAction", () => {
@@ -255,11 +257,13 @@ describe("CoderAgentChatAction", () => {
 		const result = await action.run();
 
 		expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(12345);
-		expect(coderClient.mockCreateChat).toHaveBeenCalledWith({
-			content: [{ type: "text", text: "Test prompt" }],
-			workspace_id: undefined,
-			model_config_id: undefined,
-		});
+		expect(coderClient.mockCreateChat).toHaveBeenCalledWith(
+			expect.objectContaining({
+				content: [{ type: "text", text: "Test prompt" }],
+				workspace_id: undefined,
+				model_config_id: undefined,
+			}),
+		);
 
 		const parsedResult = ActionOutputsSchema.parse(result);
 		expect(parsedResult.coderUsername).toBe(mockUser.username);
@@ -712,27 +716,6 @@ describe("CoderAgentChatAction", () => {
 
 				expect(warning).toHaveBeenCalledWith(
 					expect.stringContaining("`idempotency-key`"),
-				);
-			} finally {
-				warning.mockRestore();
-			}
-		});
-
-		test("warns when coder-organization is set", () => {
-			const warning = spyOn(core, "warning").mockImplementation(() => {});
-			try {
-				const inputs = createMockInputs({ coderOrganization: "my-org" });
-				const action = new CoderAgentChatAction(
-					coderClient,
-					octokit as unknown as Octokit,
-					inputs,
-					createMockContext(),
-				);
-
-				action.warnUnwiredInputs();
-
-				expect(warning).toHaveBeenCalledWith(
-					expect.stringContaining("`coder-organization`"),
 				);
 			} finally {
 				warning.mockRestore();
@@ -2904,5 +2887,368 @@ describe("CoderAgentChatAction", () => {
 				expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
 			},
 		);
+	});
+
+	describe("Organization resolution", () => {
+		test("resolves org by name to a UUID when coder-organization is set", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: "coder",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			await action.run();
+
+			expect(coderClient.mockGetOrganizationByName).toHaveBeenCalledWith(
+				"coder",
+			);
+			expect(coderClient.mockCreateChat).toHaveBeenCalledWith(
+				expect.objectContaining({
+					organization_id: mockOrganization.id,
+				}),
+			);
+		});
+
+		test("defaults to the resolved user's first org membership when coder-organization is unset", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			await action.run();
+
+			expect(coderClient.mockGetOrganizationByName).not.toHaveBeenCalled();
+			expect(coderClient.mockCreateChat).toHaveBeenCalledWith(
+				expect.objectContaining({
+					organization_id: mockUser.organization_ids[0],
+				}),
+			);
+		});
+
+		test("defaults via getCoderUserByUsername when only coder-username is set", async () => {
+			coderClient.mockGetCoderUserByUsername.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: mockUser.username,
+				coderOrganization: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			await action.run();
+
+			expect(coderClient.mockGetCoderUserByUsername).toHaveBeenCalledWith(
+				mockUser.username,
+			);
+			expect(coderClient.mockGetOrganizationByName).not.toHaveBeenCalled();
+			expect(coderClient.mockCreateChat).toHaveBeenCalledWith(
+				expect.objectContaining({
+					organization_id: mockUser.organization_ids[0],
+				}),
+			);
+		});
+
+		test("fails with chat-error-kind=org_not_found when the resolved user has no org memberships", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUserNoOrgs);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			expect((caught as ActionFailureError).kind).toBe("org_not_found");
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		});
+
+		test("wraps getOrganizationByName 404 in ActionFailureError(org_not_found)", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockGetOrganizationByName.mockRejectedValue(
+				new CoderAPIError("Coder API error: Not Found", 404),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: "does-not-exist",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			expect((caught as ActionFailureError).kind).toBe("org_not_found");
+			expect((caught as ActionFailureError).message).toContain(
+				"does-not-exist",
+			);
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		});
+
+		test("non-404 CoderAPIError from getOrganizationByName is not classified as org_not_found", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockGetOrganizationByName.mockRejectedValue(
+				new CoderAPIError("Coder API error: Unauthorized", 401),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: "coder",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			expect((caught as ActionFailureError).kind).not.toBe("org_not_found");
+			expect((caught as ActionFailureError).cause).toBeInstanceOf(
+				CoderAPIError,
+			);
+		});
+
+		test("existing-chat-id flow does not resolve the organization", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUserNoOrgs);
+			coderClient.mockCreateChatMessage.mockResolvedValue(
+				mockChatMessageResponse,
+			);
+
+			// User has zero org memberships and no `coder-organization` is set,
+			// which would fail the create-chat path. The follow-up path must
+			// not trigger that resolution because createChatMessage inherits
+			// the chat's organization.
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: undefined,
+				existingChatId: "990e8400-e29b-41d4-a716-446655440000",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetOrganizationByName).not.toHaveBeenCalled();
+			expect(coderClient.mockGetCoderUserByUsername).not.toHaveBeenCalled();
+			expect(coderClient.mockCreateChatMessage).toHaveBeenCalled();
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+			expect(result.chatCreated).toBe(false);
+		});
+
+		test("wraps getCoderUserByUsername 404 in ActionFailureError(user_not_found)", async () => {
+			coderClient.mockGetCoderUserByUsername.mockRejectedValue(
+				new CoderAPIError("Coder API error: Not Found", 404),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: "missing-user",
+				coderOrganization: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			expect((caught as ActionFailureError).kind).toBe("user_not_found");
+			expect((caught as ActionFailureError).message).toContain("missing-user");
+			// Cause chain preserves the original CoderAPIError for debugging.
+			expect((caught as ActionFailureError).cause).toBeInstanceOf(
+				CoderAPIError,
+			);
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		});
+
+		test("non-404 CoderAPIError from getCoderUserByUsername is not classified as user_not_found", async () => {
+			coderClient.mockGetCoderUserByUsername.mockRejectedValue(
+				new CoderAPIError("Coder API error: Unauthorized", 401),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: "some-user",
+				coderOrganization: undefined,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect(caught).toBeInstanceOf(ActionFailureError);
+			expect((caught as ActionFailureError).kind).not.toBe("user_not_found");
+			expect((caught as ActionFailureError).cause).toBeInstanceOf(
+				CoderAPIError,
+			);
+		});
+
+		test("warns and picks the first org when the user has multiple memberships", async () => {
+			const multiOrgUser = {
+				...mockUser,
+				organization_ids: [
+					mockUser.organization_ids[0],
+					"770e8400-e29b-41d4-a716-446655440000",
+				],
+			};
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(multiOrgUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+			const warningSpy = spyOn(core, "warning").mockImplementation(() => {});
+
+			try {
+				const inputs = createMockInputs({
+					githubUserID: 12345,
+					coderOrganization: undefined,
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await action.run();
+
+				expect(warningSpy).toHaveBeenCalledTimes(1);
+				expect(warningSpy.mock.calls[0][0]).toContain(
+					"2 organization memberships",
+				);
+				expect(warningSpy.mock.calls[0][0]).toContain("coder-organization");
+				expect(coderClient.mockCreateChat).toHaveBeenCalledWith(
+					expect.objectContaining({
+						organization_id: multiOrgUser.organization_ids[0],
+					}),
+				);
+			} finally {
+				warningSpy.mockRestore();
+			}
+		});
+
+		test("single-org user does not emit a warning", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+			const warningSpy = spyOn(core, "warning").mockImplementation(() => {});
+
+			try {
+				const inputs = createMockInputs({
+					githubUserID: 12345,
+					coderOrganization: undefined,
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await action.run();
+
+				expect(warningSpy).not.toHaveBeenCalled();
+			} finally {
+				warningSpy.mockRestore();
+			}
+		});
+
+		test("ActionFailureError preserves the original error as `cause` when wrapping a 404", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			const originalError = new CoderAPIError(
+				"Coder API error: Not Found",
+				404,
+			);
+			coderClient.mockGetOrganizationByName.mockRejectedValue(originalError);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderOrganization: "does-not-exist",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+
+			expect((caught as ActionFailureError).cause).toBe(originalError);
+		});
 	});
 });
