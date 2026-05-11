@@ -39,7 +39,12 @@ async function main() {
 
 		core.debug("Clients initialized");
 
-		const action = new CoderAgentChatAction(coder, octokit, inputs);
+		const action = new CoderAgentChatAction(
+			coder,
+			octokit,
+			inputs,
+			github.context,
+		);
 		const outputs = await action.run();
 
 		setActionOutputs(outputs);

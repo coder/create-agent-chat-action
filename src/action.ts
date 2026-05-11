@@ -75,11 +75,202 @@ export class ActionFailureError extends Error {
 	chatUrl?: string;
 }
 
+/**
+ * Stringify an unknown thrown value for a wrapping error message. Library
+ * code may throw `Error`s, bare strings, or arbitrary values.
+ */
+function describeError(err: unknown): string {
+	if (err instanceof Error) {
+		return err.message;
+	}
+	if (typeof err === "string") {
+		return err;
+	}
+	try {
+		return JSON.stringify(err);
+	} catch {
+		return String(err);
+	}
+}
+
+/**
+ * GitHub `author_association` values that map to repository write access in
+ * the action's auto-resolve trust model. `OWNER` and `MEMBER` cover org
+ * and personal-repo owners; `COLLABORATOR` covers invited collaborators.
+ * Any other association (including `CONTRIBUTOR`, `FIRST_TIMER`,
+ * `FIRST_TIME_CONTRIBUTOR`, `MANNEQUIN`, `NONE`) is treated as untrusted.
+ *
+ * See: https://docs.github.com/en/graphql/reference/enums#commentauthorassociation
+ */
+const TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
+	"OWNER",
+	"MEMBER",
+	"COLLABORATOR",
+]);
+
+/**
+ * Structural subset of `@actions/github`'s `Context` covering the fields the
+ * action reads. Production callers pass `github.context`; tests build
+ * fixtures via `createMockContext`.
+ *
+ * The auto-resolve trust gate (`classifyAutoResolveTrust`) reads
+ * `pull_request.head.repo` / `pull_request.base.repo` for fork detection,
+ * and `comment.author_association` / `review.author_association` as the
+ * sender-reliable trust signals. `issue.author_association` and
+ * `pull_request.author_association` are typed on the payload for
+ * completeness but the gate deliberately does not read them (they
+ * describe the resource opener, not the event sender). Fields are
+ * typed loosely because the full webhook schemas are large and
+ * event-specific.
+ */
+export interface ActionContext {
+	eventName: string;
+	actor: string;
+	payload: {
+		sender?: {
+			id?: number;
+			[key: string]: unknown;
+		};
+		pull_request?: {
+			author_association?: string;
+			head?: {
+				repo?: {
+					fork?: boolean;
+					full_name?: string;
+					[key: string]: unknown;
+				} | null;
+				[key: string]: unknown;
+			};
+			base?: {
+				repo?: {
+					full_name?: string;
+					[key: string]: unknown;
+				} | null;
+				[key: string]: unknown;
+			};
+			[key: string]: unknown;
+		};
+		issue?: {
+			author_association?: string;
+			[key: string]: unknown;
+		};
+		comment?: {
+			author_association?: string;
+			[key: string]: unknown;
+		};
+		review?: {
+			author_association?: string;
+			[key: string]: unknown;
+		};
+		[key: string]: unknown;
+	};
+}
+
+/**
+ * Outcome of the auto-resolve trust gate. `trusted` means the gate found a
+ * repository-write-level signal and auto-resolve may proceed. `untrusted`
+ * means the gate found a signal that fails the bar (fork PR, low-trust
+ * association) and auto-resolve must refuse. `no-signal` means the
+ * payload carried nothing the gate can act on, so the gate defers to
+ * GitHub's underlying event-permission model (secret access, branch
+ * protection, etc.).
+ */
+type TrustClassification =
+	| { kind: "trusted"; reason: string }
+	| { kind: "untrusted"; reason: string }
+	| { kind: "no-signal" };
+
+/**
+ * Classify whether the triggering identity from `context` is trusted for
+ * auto-resolve.
+ *
+ * Two layers of signal, applied in order:
+ *
+ * 1. Fork pull requests always refuse. An attacker who opens a PR from a
+ *    fork must not be able to bind the workflow's Coder token to their
+ *    own Coder identity (if they happen to have one) and execute
+ *    attacker-controlled prompts. A `null` `head.repo` (deleted fork) is
+ *    also treated as a fork: the only way `head.repo` becomes null is
+ *    when the fork's source repository was deleted, which collapses the
+ *    same-repo check below into a false negative.
+ *
+ * 2. `author_association` on `comment` or `review`, in that order. These
+ *    are the only fields where the association describes the event
+ *    *sender* rather than the resource *author*. On `issue_comment`,
+ *    `comment.user` is the sender; on `pull_request_review`,
+ *    `review.user` is the sender. By contrast, `issue.author_association`
+ *    and `pull_request.author_association` describe the resource opener,
+ *    not the labeler / assigner / reviewer who actually triggered the
+ *    event. Reading them would refuse a trusted MEMBER labeling an
+ *    issue opened by a NONE user.
+ *
+ * Returning `no-signal` is deliberate: events like `issues`,
+ * `pull_request` (same-repo), `workflow_dispatch`, `push`, and
+ * `repository_dispatch` carry no sender-association data the gate can
+ * trust, and the underlying GitHub permission model already gates who
+ * can trigger them. The trust gate is layered on top of, not in place
+ * of, those controls.
+ */
+function classifyAutoResolveTrust(context: ActionContext): TrustClassification {
+	const pr = context.payload.pull_request;
+	if (pr) {
+		const headRepo = pr.head?.repo;
+		const baseRepo = pr.base?.repo;
+		const headFullName = headRepo?.full_name;
+		const baseFullName = baseRepo?.full_name;
+		const isFork =
+			headRepo === null ||
+			headRepo?.fork === true ||
+			(typeof headFullName === "string" &&
+				typeof baseFullName === "string" &&
+				headFullName !== baseFullName);
+		if (isFork) {
+			return {
+				kind: "untrusted",
+				reason:
+					"the pull request is from a fork; auto-resolve refuses to bind " +
+					"the workflow's Coder identity to a fork-PR author",
+			};
+		}
+	}
+
+	// Only read `author_association` from `comment` and `review`: those
+	// are the only payload fields where the association describes the
+	// event sender rather than the resource author. `issue` and
+	// `pull_request` `author_association` describe the opener, which is
+	// frequently NOT the sender (a MEMBER labeling an issue, an assignee
+	// receiving an assignment, etc.).
+	const associations: Array<{ source: string; value: unknown }> = [
+		{ source: "comment", value: context.payload.comment?.author_association },
+		{ source: "review", value: context.payload.review?.author_association },
+	];
+	for (const { source, value } of associations) {
+		if (typeof value !== "string" || value.length === 0) {
+			continue;
+		}
+		if (TRUSTED_AUTHOR_ASSOCIATIONS.has(value)) {
+			return {
+				kind: "trusted",
+				reason: `${source}.author_association is ${value}`,
+			};
+		}
+		return {
+			kind: "untrusted",
+			reason:
+				`${source}.author_association is ${value}, which lacks ` +
+				"repository write access",
+		};
+	}
+
+	return { kind: "no-signal" };
+}
+
 export class CoderAgentChatAction {
 	constructor(
 		private readonly coder: CoderClient,
 		private readonly octokit: Octokit,
 		private readonly inputs: ActionInputs,
+		private readonly context: ActionContext,
 		private readonly clock: Clock = defaultClock,
 	) {}
 
@@ -380,33 +571,169 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Main action execution
+	 * Resolve the Coder username to run as. Resolution order, high to low:
+	 *
+	 * 1. `coder-username` input.
+	 * 2. `github-user-id` input.
+	 * 3. `context.payload.sender.id` (issue, pull request, comment, and most
+	 *    webhook-driven events that carry the triggering user under `sender`).
+	 * 4. `context.actor` for events whose payload lacks a usable `sender.id`
+	 *    (partial sender objects, bot dispatches, custom dispatch chains).
+	 *    Resolved to a numeric id via `octokit.rest.users.getByUsername`,
+	 *    then to a Coder user.
+	 *
+	 * Resolve the Coder username to run as. Resolution order, high to low:
+	 *
+	 * 1. `coder-username` input.
+	 * 2. `github-user-id` input.
+	 * 3. `context.payload.sender.id` (issue, pull request, comment, and most
+	 *    webhook-driven events that carry the triggering user under `sender`).
+	 * 4. `context.actor` for events whose payload lacks a usable `sender.id`
+	 *    (partial sender objects, bot dispatches, custom dispatch chains).
+	 *    Resolved to a numeric id via `octokit.rest.users.getByUsername`,
+	 *    then to a Coder user.
+	 *
+	 * `schedule` events are refused before any auto-resolve source: their
+	 * `actor` is the workflow file's last editor, not a triggering identity.
+	 *
+	 * Throws naming both inputs when no source resolves. Intermediate
+	 * failures are wrapped to name the auto-resolved source, preserve the
+	 * upstream error, and recommend `coder-username` as the bypass.
+	 *
+	 * Before sources 3 and 4, a trust gate (`classifyAutoResolveTrust`)
+	 * refuses auto-resolve for fork pull requests and for triggering
+	 * identities whose `comment.author_association` or
+	 * `review.author_association` lacks repository write access (anything
+	 * other than `OWNER`, `MEMBER`, `COLLABORATOR`). This prevents a
+	 * hostile-trigger attack where an attacker who happens to have a
+	 * Coder identity could open a fork PR or drop a comment to bind
+	 * their Coder identity to the workflow and execute
+	 * attacker-controlled prompts under the workflow's Coder session
+	 * token. Setting `coder-username` or `github-user-id` bypasses the
+	 * trust gate: the workflow author has explicitly chosen the identity.
 	 */
-	async run(): Promise<ActionOutputs> {
-		this.warnUnwiredInputs();
-
-		let coderUsername: string;
+	async resolveCoderUsername(): Promise<string> {
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-			coderUsername = this.inputs.coderUsername;
-		} else if (this.inputs.githubUserID !== undefined) {
+			return this.inputs.coderUsername;
+		}
+		if (this.inputs.githubUserID !== undefined) {
 			core.info(
 				`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`,
 			);
 			const coderUser = await this.coder.getCoderUserByGitHubId(
 				this.inputs.githubUserID,
 			);
-			coderUsername = coderUser.username;
-		} else {
-			// Both identity inputs are unset. The schema permits this so the
-			// runtime can later auto-resolve from the workflow context; until
-			// that path lands, fail with a clear message rather than crashing
-			// inside the user lookup.
+			return coderUser.username;
+		}
+
+		// Refuse before any auto-resolve source so the exclusion is semantic,
+		// not an artifact of source ordering. Today's `schedule` payloads
+		// omit `sender`, but a future shape that delivered it would still
+		// describe the underlying webhook trigger, not the cron run.
+		if (this.context.eventName === "schedule") {
 			throw new Error(
-				"Cannot resolve Coder user: set either `github-user-id` or " +
-					"`coder-username`.",
+				"Cannot auto-resolve a GitHub identity for `schedule` events: " +
+					"`github.context.actor` for cron-triggered runs is the workflow " +
+					"file's last editor, not the triggering user. " +
+					"Set the `coder-username` input to a Coder username, or set " +
+					"`github-user-id` to the GitHub numeric user id of the user the " +
+					"chat should run as.",
 			);
 		}
+
+		// Trust gate: before auto-resolving from `sender.id` or `actor`,
+		// refuse if the triggering identity comes from a fork PR or carries a
+		// low-trust `author_association`. Without this gate, an attacker who
+		// happens to have a Coder identity could open a fork PR or drop an
+		// issue comment to bind their Coder identity to the workflow and
+		// execute attacker-controlled prompts under the workflow's Coder
+		// token. Explicit `coder-username` and `github-user-id` inputs are
+		// handled above and bypass this gate by design.
+		const trust = classifyAutoResolveTrust(this.context);
+		if (trust.kind === "untrusted") {
+			throw new Error(
+				"Refusing to auto-resolve a GitHub identity: " +
+					`${trust.reason}. ` +
+					"Set the `coder-username` input to a Coder username, or set " +
+					"`github-user-id` to the GitHub numeric user id of the user " +
+					"the chat should run as.",
+			);
+		}
+		if (trust.kind === "trusted") {
+			core.info(`Auto-resolve trust check passed: ${trust.reason}`);
+		}
+
+		// Prefer `sender.id` over `actor`: it's already numeric, no extra
+		// API call. The guard mirrors `z.number().int().positive()` on the
+		// `github-user-id` input.
+		const senderId = this.context.payload?.sender?.id;
+		if (
+			typeof senderId === "number" &&
+			Number.isInteger(senderId) &&
+			senderId > 0
+		) {
+			core.info(
+				`Auto-resolving Coder user from github.context.payload.sender.id: ${senderId}`,
+			);
+			try {
+				const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
+				return coderUser.username;
+			} catch (err) {
+				throw new Error(
+					`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` +
+						"Set the `coder-username` input to bypass auto-resolution.",
+				);
+			}
+		}
+
+		// Actor fallback for events whose payload lacks a usable `sender.id`.
+		// `workflow_dispatch` payloads do include `sender.id`, so source 3
+		// handles it; this branch covers partial sender objects, bot
+		// dispatches, and custom dispatch chains.
+		const actor = this.context.actor;
+		if (actor) {
+			core.info(
+				`Auto-resolving Coder user from github.context.actor: ${actor}`,
+			);
+			let actorId: number;
+			try {
+				const { data } = await this.octokit.rest.users.getByUsername({
+					username: actor,
+				});
+				actorId = data.id;
+			} catch (err) {
+				throw new Error(
+					`Failed to resolve GitHub user id for github.context.actor (${actor}): ${describeError(err)}. ` +
+						"Set the `coder-username` input to bypass auto-resolution.",
+				);
+			}
+			try {
+				const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
+				return coderUser.username;
+			} catch (err) {
+				throw new Error(
+					`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` +
+						"Set the `coder-username` input to bypass auto-resolution.",
+				);
+			}
+		}
+
+		throw new Error(
+			"Could not auto-resolve a GitHub identity from the workflow context. " +
+				"Set the `coder-username` input to a Coder username, or set " +
+				"`github-user-id` to the GitHub numeric user id of the user the " +
+				"chat should run as.",
+		);
+	}
+
+	/**
+	 * Main action execution
+	 */
+	async run(): Promise<ActionOutputs> {
+		this.warnUnwiredInputs();
+
+		const coderUsername = await this.resolveCoderUsername();
 
 		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
 		core.info(`GitHub owner: ${githubOrg}`);

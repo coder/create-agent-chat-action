@@ -12,6 +12,7 @@ import type {
 import type { Clock } from "./action";
 import type { ActionInputs } from "./schemas";
 import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./schemas";
+import type { ActionContext } from "./action";
 
 /**
  * Fake clock that records every sleep duration and treats sleeps as
@@ -161,6 +162,21 @@ export class MockCoderClient implements CoderClient {
 	async listChats(): Promise<CoderChat[]> {
 		return this.mockListChats();
 	}
+}
+
+/**
+ * Build a minimal `ActionContext` shaped like `@actions/github`'s Context.
+ * Tests populate only the fields they exercise.
+ */
+export function createMockContext(
+	overrides?: Partial<ActionContext>,
+): ActionContext {
+	return {
+		eventName: "",
+		actor: "",
+		payload: {},
+		...overrides,
+	};
 }
 
 /**

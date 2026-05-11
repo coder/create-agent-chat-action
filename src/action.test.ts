@@ -13,6 +13,7 @@ import {
 	createFakeClock,
 	createMockOctokit,
 	createMockInputs,
+	createMockContext,
 	mockUser,
 	mockChat,
 	mockChatWithDiff,
@@ -37,6 +38,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -56,6 +58,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -73,6 +76,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError("Missing GitHub URL");
@@ -84,6 +88,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError(
@@ -99,6 +104,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -118,6 +124,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const result = action.generateChatUrl(mockChat.id);
@@ -133,6 +140,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const result = action.generateChatUrl(mockChat.id);
@@ -155,6 +163,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await action.commentOnIssue("chat-url", "owner", "repo", 123);
@@ -183,6 +192,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await action.commentOnIssue("new-url", "owner", "repo", 123);
@@ -207,6 +217,7 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
+					createMockContext(),
 				);
 
 				await expect(
@@ -233,6 +244,7 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
+			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -262,6 +274,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const out = action.buildOutputs(mockUser.username, mockChat, true);
@@ -289,6 +302,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const out = action.buildOutputs(
@@ -321,6 +335,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -346,6 +361,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -376,6 +392,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -405,6 +422,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -438,6 +456,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 			const chatWithError: typeof mockChat = {
 				...mockChat,
@@ -457,6 +476,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			const out = action.buildOutputs(mockUser.username, mockChat, true);
@@ -477,6 +497,7 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
+			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -511,6 +532,7 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
+			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -551,6 +573,7 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
+			createMockContext(),
 		);
 
 		// The follow-up message succeeded, so the action should not fail red
@@ -582,6 +605,7 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
+			createMockContext(),
 		);
 
 		await action.run();
@@ -606,6 +630,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await action.run();
@@ -633,6 +658,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await action.run();
@@ -651,6 +677,7 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
+					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -673,6 +700,7 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
+					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -693,6 +721,7 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
+					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -713,6 +742,7 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
+					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -724,26 +754,894 @@ describe("CoderAgentChatAction", () => {
 		});
 	});
 
-	describe("identity resolution", () => {
-		test("throws when neither github-user-id nor coder-username is set", async () => {
+	describe("Identity resolution", () => {
+		test("uses coder-username directly without GitHub-id lookup", async () => {
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
 			const inputs = createMockInputs({
 				githubUserID: undefined,
-				coderUsername: undefined,
+				coderUsername: mockUser.username,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				payload: { sender: { id: 99999 } },
 			});
 			const action = new CoderAgentChatAction(
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				context,
 			);
 
-			// Both identity inputs unset. The schema permits this so the
-			// runtime can later auto-resolve from the workflow context;
-			// until that lands, action.run must fail with a clear message
-			// instead of calling the user lookup with undefined.
-			await expect(action.run()).rejects.toThrow(
-				/set either `github-user-id` or `coder-username`/,
-			);
+			const result = await action.run();
+
 			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("prefers coder-username over github-user-id when both bypass the schema", async () => {
+			// The Zod schema rejects setting both inputs simultaneously, but the
+			// resolver is a unit and the precedence #1 vs #2 must hold even if a
+			// future caller bypasses the schema. Constructing the action directly
+			// pins the precedence in the unit's contract.
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = {
+				...createMockInputs(),
+				coderUsername: mockUser.username,
+				githubUserID: 12345,
+				commentOnIssue: false,
+			};
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext({ eventName: "issues" }),
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("looks up by github-user-id when set", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				payload: { sender: { id: 99999 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(
+				12345,
+			);
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("falls back to context.payload.sender.id when both inputs are unset", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				actor: "some-actor",
+				payload: { sender: { id: 424242 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(
+				424242,
+			);
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("falls through to actor when sender exists without a numeric id", async () => {
+			// Bot-triggered events sometimes deliver a partial sender object
+			// (e.g. `{ login: "bot" }` with no `id`). The resolver guards
+			// `sender.id` with `typeof === "number" && > 0` and falls through.
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 333 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				actor: "octocat",
+				payload: { sender: {} },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(octokit.rest.users.getByUsername).toHaveBeenCalledWith({
+				username: "octocat",
+			});
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("treats sender id of 0 as missing and falls through to actor", async () => {
+			// Mirrors the Zod schema's positive constraint on `github-user-id`.
+			// Without the guard, `0` reaches a bare-string throw inside the
+			// Coder client and surfaces as "Unknown error occurred".
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 444 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				actor: "octocat",
+				payload: { sender: { id: 0 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalledWith(
+				0,
+			);
+			expect(octokit.rest.users.getByUsername).toHaveBeenCalledWith({
+				username: "octocat",
+			});
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("treats non-integer sender id as missing and falls through to actor", async () => {
+			// Mirrors the Zod schema's `.int()` constraint on `github-user-id`.
+			// GitHub user IDs are integers in practice, but the runtime guard
+			// should match the schema's shape rather than admitting `1.5`.
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 444 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				actor: "octocat",
+				payload: { sender: { id: 1.5 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalledWith(
+				1.5,
+			);
+			expect(octokit.rest.users.getByUsername).toHaveBeenCalledWith({
+				username: "octocat",
+			});
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("falls back to actor lookup for manual triggers", async () => {
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 555 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			// `workflow_dispatch` payloads do include `sender`, so use a payload
+			// shape (sender absent) that genuinely forces the actor branch.
+			const context = createMockContext({
+				eventName: "workflow_dispatch",
+				actor: "octocat",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(octokit.rest.users.getByUsername).toHaveBeenCalledWith({
+				username: "octocat",
+			});
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(555);
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("refuses to auto-resolve schedule events even when actor is present", async () => {
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "schedule",
+				actor: "workflow-editor",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("schedule");
+			expect(message).toContain("coder-username");
+			expect(message).toContain("github-user-id");
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("refuses to auto-resolve schedule events even when sender.id is present", async () => {
+			// The schedule guard must be semantic, not positional. Today's
+			// `schedule` payloads omit `sender`, but if a future GHES extension
+			// or custom dispatch chain delivers `sender.id`, we still refuse
+			// rather than silently misattribute.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "schedule",
+				actor: "workflow-editor",
+				payload: { sender: { id: 12345 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("schedule");
+			expect(message).toContain("coder-username");
+			expect(message).toContain("github-user-id");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+		});
+
+		test("fails with a clear error when no source resolves", async () => {
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "repository_dispatch",
+				actor: "",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("coder-username");
+			expect(message).toContain("github-user-id");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+		});
+
+		test("wraps sender lookup failure with source and bypass instructions", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
+				new Error("No Coder user found with GitHub user ID 424242"),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				payload: { sender: { id: 424242 } },
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("github.context.payload.sender.id");
+			expect(message).toContain("424242");
+			expect(message).toContain(
+				"No Coder user found with GitHub user ID 424242",
+			);
+			expect(message).toContain("coder-username");
+		});
+
+		test("wraps actor getByUsername failure with source and bypass instructions", async () => {
+			octokit.rest.users.getByUsername.mockRejectedValue(
+				new Error("Not Found"),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "workflow_dispatch",
+				actor: "missing-user",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("github.context.actor");
+			expect(message).toContain("missing-user");
+			expect(message).toContain("Not Found");
+			expect(message).toContain("coder-username");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("wraps actor Coder lookup failure with source and bypass instructions", async () => {
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 555 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
+				new Error("No Coder user found with GitHub user ID 555"),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "workflow_dispatch",
+				actor: "octocat",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("github.context.actor");
+			expect(message).toContain("octocat");
+			expect(message).toContain("555");
+			expect(message).toContain("No Coder user found with GitHub user ID 555");
+			expect(message).toContain("coder-username");
+		});
+
+		test("refuses auto-resolve on a fork pull request even with a sender.id", async () => {
+			// Hostile-trigger threat model: an attacker who happens to have a
+			// Coder identity could open a PR from a fork to bind their identity
+			// to the workflow's chat run. The trust gate refuses before any
+			// Coder API call.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						head: {
+							repo: { fork: true, full_name: "attacker/fork" },
+						},
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("fork");
+			expect(message).toContain("coder-username");
+			expect(message).toContain("github-user-id");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+			expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+		});
+
+		test("detects fork by head/base repo full_name mismatch when fork flag is absent", async () => {
+			// Some webhook deliveries omit `fork`. Fall back to comparing
+			// `full_name` so the gate still refuses cross-repo PRs.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						head: { repo: { full_name: "attacker/fork" } },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			expect((caught as Error).message).toContain("fork");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("refuses auto-resolve when head.repo is null (deleted fork)", async () => {
+			// When a fork's source repository is deleted, GitHub delivers
+			// `pull_request.head.repo` as `null`. The fork flag and the
+			// full_name comparison both yield falsy under optional chaining,
+			// so the gate must treat `null` head repo as a fork explicitly.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						head: { repo: null },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			expect((caught as Error).message).toContain("fork");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("refuses auto-resolve when comment.author_association is CONTRIBUTOR", async () => {
+			// Drive-by issue comment from a non-write user. The sender id
+			// would resolve under the old behavior; the trust gate must
+			// refuse before any Coder lookup.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "issue_comment",
+				actor: "drive-by",
+				payload: {
+					sender: { id: 99999 },
+					comment: { author_association: "CONTRIBUTOR" },
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("CONTRIBUTOR");
+			expect(message).toContain("author_association");
+			expect(message).toContain("coder-username");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("auto-resolves when MEMBER labels NONE opener's issue (sender is the labeler)", async () => {
+			// Realistic `issues: [labeled]` payload. The sender is a trusted
+			// MEMBER labeling an issue opened by a NONE user. The gate must
+			// NOT read `issue.author_association` (the opener) and refuse;
+			// it must auto-resolve the labeler's sender.id.
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issues",
+				actor: "member-labeler",
+				payload: {
+					sender: { id: 424242 },
+					issue: { author_association: "NONE" },
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(
+				424242,
+			);
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("allows auto-resolve when comment.author_association is MEMBER", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "issue_comment",
+				actor: "member-user",
+				payload: {
+					sender: { id: 424242 },
+					comment: { author_association: "MEMBER" },
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(
+				424242,
+			);
+			expect(result.coderUsername).toBe(mockUser.username);
+		});
+
+		test("allows auto-resolve via comment.author_association for OWNER and COLLABORATOR", async () => {
+			for (const association of ["OWNER", "COLLABORATOR"] as const) {
+				const freshClient = new MockCoderClient();
+				freshClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				freshClient.mockCreateChat.mockResolvedValue(mockChat);
+
+				const inputs = createMockInputs({
+					githubUserID: undefined,
+					coderUsername: undefined,
+					commentOnIssue: false,
+				});
+				const context = createMockContext({
+					eventName: "issue_comment",
+					actor: "trusted",
+					payload: {
+						sender: { id: 7 },
+						comment: { author_association: association },
+					},
+				});
+				const action = new CoderAgentChatAction(
+					freshClient,
+					octokit as unknown as Octokit,
+					inputs,
+					context,
+				);
+
+				const result = await action.run();
+				expect(result.coderUsername).toBe(mockUser.username);
+				expect(freshClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(7);
+			}
+		});
+
+		test("refuses auto-resolve when review.author_association is NONE", async () => {
+			// On `pull_request_review`, the reviewer is the sender. A NONE
+			// reviewer should not be able to drive auto-resolve even when the
+			// PR is same-repo.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "pull_request_review",
+				actor: "drive-by-reviewer",
+				payload: {
+					sender: { id: 99999 },
+					review: { author_association: "NONE" },
+					pull_request: {
+						head: { repo: { fork: false, full_name: "owner/repo" } },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			let caught: unknown;
+			try {
+				await action.run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			const message = (caught as Error).message;
+			expect(message).toContain("review.author_association");
+			expect(message).toContain("NONE");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("prefers comment.author_association over review.author_association", async () => {
+			// On `pull_request_review_comment`, both `comment` and `review`
+			// can appear in the payload. The comment is the more specific
+			// signal (it identifies the line-level commenter, not the
+			// containing review thread author), so comment wins.
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+			});
+			const context = createMockContext({
+				eventName: "pull_request_review_comment",
+				actor: "drive-by",
+				payload: {
+					sender: { id: 99999 },
+					comment: { author_association: "NONE" },
+					review: { author_association: "MEMBER" },
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			await expect(action.run()).rejects.toThrow(/NONE/);
+		});
+
+		test("coder-username bypasses the trust gate on a fork PR", async () => {
+			// Workflow author explicitly opted into running as a known
+			// service-account identity. The trust gate must not refuse: the
+			// fork PR's prompt is still attacker-controlled, but the workflow
+			// author has accepted the responsibility of that opt-in.
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: "bot-user",
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						head: { repo: { fork: true, full_name: "attacker/fork" } },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+			expect(result.coderUsername).toBe("bot-user");
+			expect(coderClient.mockGetCoderUserByGithubID).not.toHaveBeenCalled();
+		});
+
+		test("github-user-id bypasses the trust gate on a fork PR", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: 7,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						head: { repo: { fork: true, full_name: "attacker/fork" } },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+			expect(result.coderUsername).toBe(mockUser.username);
+			expect(coderClient.mockGetCoderUserByGithubID).toHaveBeenCalledWith(7);
+		});
+
+		test("workflow_dispatch carries no trust signal and auto-resolves", async () => {
+			// `workflow_dispatch` payloads carry neither pull_request nor
+			// author_association data. The gate returns `no-signal` and
+			// auto-resolve proceeds; GitHub already gates who can trigger
+			// `workflow_dispatch` (write access to the repo).
+			octokit.rest.users.getByUsername.mockResolvedValue({
+				data: { id: 555 },
+			} as unknown as ReturnType<typeof octokit.rest.users.getByUsername>);
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({
+				githubUserID: undefined,
+				coderUsername: undefined,
+				commentOnIssue: false,
+			});
+			const context = createMockContext({
+				eventName: "workflow_dispatch",
+				actor: "trusted-user",
+				payload: {},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			const result = await action.run();
+			expect(result.coderUsername).toBe(mockUser.username);
 		});
 	});
 
@@ -762,6 +1660,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -796,6 +1695,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -838,6 +1738,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -878,6 +1779,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -921,6 +1823,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -969,6 +1872,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1006,6 +1910,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1045,6 +1950,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1103,6 +2009,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1136,6 +2043,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1183,6 +2091,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1221,6 +2130,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1255,6 +2165,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1292,6 +2203,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1338,6 +2250,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1388,6 +2301,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1429,6 +2343,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1469,6 +2384,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 				clock,
 			);
 
@@ -1498,6 +2414,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow(
@@ -1516,6 +2433,7 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
+				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow("Failed to create chat");
