@@ -22757,16 +22757,72 @@ class ActionFailureError extends Error {
   coderUsername;
   chatUrl;
 }
+function describeError(err) {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+var TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR"
+]);
+function classifyAutoResolveTrust(context) {
+  const pr = context.payload.pull_request;
+  if (pr) {
+    const headRepo = pr.head?.repo;
+    const baseRepo = pr.base?.repo;
+    const headFullName = headRepo?.full_name;
+    const baseFullName = baseRepo?.full_name;
+    const isFork = headRepo === null || headRepo?.fork === true || typeof headFullName === "string" && typeof baseFullName === "string" && headFullName !== baseFullName;
+    if (isFork) {
+      return {
+        kind: "untrusted",
+        reason: "the pull request is from a fork; auto-resolve refuses to bind " + "the workflow's Coder identity to a fork-PR author"
+      };
+    }
+  }
+  const associations = [
+    { source: "comment", value: context.payload.comment?.author_association },
+    { source: "review", value: context.payload.review?.author_association }
+  ];
+  for (const { source, value } of associations) {
+    if (typeof value !== "string" || value.length === 0) {
+      continue;
+    }
+    if (TRUSTED_AUTHOR_ASSOCIATIONS.has(value)) {
+      return {
+        kind: "trusted",
+        reason: `${source}.author_association is ${value}`
+      };
+    }
+    return {
+      kind: "untrusted",
+      reason: `${source}.author_association is ${value}, which lacks ` + "repository write access"
+    };
+  }
+  return { kind: "no-signal" };
+}
 
 class CoderAgentChatAction {
   coder;
   octokit;
   inputs;
+  context;
   clock;
-  constructor(coder, octokit, inputs, clock = defaultClock) {
+  constructor(coder, octokit, inputs, context, clock = defaultClock) {
     this.coder = coder;
     this.octokit = octokit;
     this.inputs = inputs;
+    this.context = context;
     this.clock = clock;
   }
   parseGithubURL() {
@@ -22918,19 +22974,60 @@ class CoderAgentChatAction {
       throw err;
     }
   }
-  async run() {
-    this.warnUnwiredInputs();
-    let coderUsername;
+  async resolveCoderUsername() {
     if (this.inputs.coderUsername) {
       core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-      coderUsername = this.inputs.coderUsername;
-    } else if (this.inputs.githubUserID !== undefined) {
+      return this.inputs.coderUsername;
+    }
+    if (this.inputs.githubUserID !== undefined) {
       core.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
       const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
-      coderUsername = coderUser.username;
-    } else {
-      throw new Error("Cannot resolve Coder user: set either `github-user-id` or " + "`coder-username`.");
+      return coderUser.username;
     }
+    if (this.context.eventName === "schedule") {
+      throw new Error("Cannot auto-resolve a GitHub identity for `schedule` events: " + "`github.context.actor` for cron-triggered runs is the workflow " + "file's last editor, not the triggering user. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+    }
+    const trust = classifyAutoResolveTrust(this.context);
+    if (trust.kind === "untrusted") {
+      throw new Error("Refusing to auto-resolve a GitHub identity: " + `${trust.reason}. ` + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user " + "the chat should run as.");
+    }
+    if (trust.kind === "trusted") {
+      core.info(`Auto-resolve trust check passed: ${trust.reason}`);
+    }
+    const senderId = this.context.payload?.sender?.id;
+    if (typeof senderId === "number" && Number.isInteger(senderId) && senderId > 0) {
+      core.info(`Auto-resolving Coder user from github.context.payload.sender.id: ${senderId}`);
+      try {
+        const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
+        return coderUser.username;
+      } catch (err) {
+        throw new Error(`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+    }
+    const actor = this.context.actor;
+    if (actor) {
+      core.info(`Auto-resolving Coder user from github.context.actor: ${actor}`);
+      let actorId;
+      try {
+        const { data } = await this.octokit.rest.users.getByUsername({
+          username: actor
+        });
+        actorId = data.id;
+      } catch (err) {
+        throw new Error(`Failed to resolve GitHub user id for github.context.actor (${actor}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+      try {
+        const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
+        return coderUser.username;
+      } catch (err) {
+        throw new Error(`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+    }
+    throw new Error("Could not auto-resolve a GitHub identity from the workflow context. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+  }
+  async run() {
+    this.warnUnwiredInputs();
+    const coderUsername = await this.resolveCoderUsername();
     const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
     core.info(`GitHub owner: ${githubOrg}`);
     core.info(`GitHub repo: ${githubRepo}`);
@@ -27216,7 +27313,7 @@ var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.github
   message: "Cannot set both github-user-id and coder-username; choose one.",
   path: ["coderUsername"]
 });
-var ChatErrorKindSchema = exports_external.enum([
+var ChatErrorKindSchema2 = exports_external.enum([
   "spend_exceeded",
   "user_not_found",
   "user_ambiguous",
@@ -27241,7 +27338,7 @@ var ActionOutputsSchema = exports_external.object({
   changedFiles: exports_external.number().optional(),
   headBranch: exports_external.string().optional(),
   baseBranch: exports_external.string().optional(),
-  chatErrorKind: ChatErrorKindSchema.optional(),
+  chatErrorKind: ChatErrorKindSchema2.optional(),
   chatErrorMessage: exports_external.string().optional()
 });
 
@@ -27273,7 +27370,7 @@ async function main() {
     const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
     const octokit = github.getOctokit(inputs.githubToken);
     core3.debug("Clients initialized");
-    const action = new CoderAgentChatAction(coder, octokit, inputs);
+    const action = new CoderAgentChatAction(coder, octokit, inputs, github.context);
     const outputs = await action.run();
     setActionOutputs(outputs);
     core3.debug("Action completed successfully");
