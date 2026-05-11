@@ -369,3 +369,17 @@ describe("CoderClient", () => {
 		});
 	});
 });
+
+describe("createMockResponse", () => {
+	test("headers behaves like fetch Response.headers (case-insensitive)", () => {
+		// Production code at coder-client.ts calls
+		// `response.headers?.get("content-length")` to detect empty bodies.
+		// The real `fetch` `Response.headers` is a case-insensitive `Headers`
+		// instance, so the mock must match. A regression to `new Map()` (the
+		// pre-fix behavior) would fail this assertion.
+		const res = createMockResponse({}, { headers: { "Content-Length": "0" } });
+
+		expect(res.headers.get("content-length")).toBe("0");
+		expect(res.headers.get("Content-Length")).toBe("0");
+	});
+});
