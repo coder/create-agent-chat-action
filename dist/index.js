@@ -3,25 +3,43 @@ var __getProtoOf = Object.getPrototypeOf;
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+function __accessProp(key) {
+  return this[key];
+}
+var __toESMCache_node;
+var __toESMCache_esm;
 var __toESM = (mod, isNodeMode, target) => {
+  var canCache = mod != null && typeof mod === "object";
+  if (canCache) {
+    var cache = isNodeMode ? __toESMCache_node ??= new WeakMap : __toESMCache_esm ??= new WeakMap;
+    var cached = cache.get(mod);
+    if (cached)
+      return cached;
+  }
   target = mod != null ? __create(__getProtoOf(mod)) : {};
   const to = isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
   for (let key of __getOwnPropNames(mod))
     if (!__hasOwnProp.call(to, key))
       __defProp(to, key, {
-        get: () => mod[key],
+        get: __accessProp.bind(mod, key),
         enumerable: true
       });
+  if (canCache)
+    cache.set(mod, to);
   return to;
 };
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
+var __returnValue = (v) => v;
+function __exportSetter(name, newValue) {
+  this[name] = __returnValue.bind(null, newValue);
+}
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, {
       get: all[name],
       enumerable: true,
       configurable: true,
-      set: (newValue) => all[name] = () => newValue
+      set: __exportSetter.bind(all, name)
     });
 };
 
@@ -3447,7 +3465,7 @@ var require_constants2 = __commonJS((exports2, module2) => {
     }
   })();
   var channel;
-  var structuredClone = globalThis.structuredClone ?? function structuredClone(value, options = undefined) {
+  var structuredClone = globalThis.structuredClone ?? function structuredClone2(value, options = undefined) {
     if (arguments.length === 0) {
       throw new TypeError("missing argument");
     }
@@ -16372,7 +16390,7 @@ var require_undici = __commonJS((exports2, module2) => {
   module2.exports.getGlobalDispatcher = getGlobalDispatcher;
   if (util.nodeMajor > 16 || util.nodeMajor === 16 && util.nodeMinor >= 8) {
     let fetchImpl = null;
-    module2.exports.fetch = async function fetch(resource) {
+    module2.exports.fetch = async function fetch2(resource) {
       if (!fetchImpl) {
         fetchImpl = require_fetch().fetch;
       }
@@ -22708,11 +22726,11 @@ var require_github = __commonJS((exports2) => {
 });
 
 // src/index.ts
-var core2 = __toESM(require_core());
-var github = __toESM(require_github());
+var core3 = __toESM(require_core(), 1);
+var github = __toESM(require_github(), 1);
 
 // src/action.ts
-var core = __toESM(require_core());
+var core = __toESM(require_core(), 1);
 
 class CoderAgentChatAction {
   coder;
@@ -22723,13 +22741,13 @@ class CoderAgentChatAction {
     this.octokit = octokit;
     this.inputs = inputs;
   }
-  parseGithubIssueURL() {
-    if (!this.inputs.githubIssueURL) {
-      throw new Error("Missing issue URL");
+  parseGithubURL() {
+    if (!this.inputs.githubURL) {
+      throw new Error("Missing GitHub URL");
     }
-    const match = this.inputs.githubIssueURL.match(/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+    const match = this.inputs.githubURL.match(/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/);
     if (!match) {
-      throw new Error(`Invalid issue URL: ${this.inputs.githubIssueURL}`);
+      throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
     }
     return {
       githubOrg: match[1],
@@ -22742,14 +22760,14 @@ class CoderAgentChatAction {
     return `${baseURL}/chats/${chatId}`;
   }
   async commentOnIssue(chatUrl, owner, repo, issueNumber) {
-    const body = `Agent chat created: ${chatUrl}`;
+    const body = `Agent chat: ${chatUrl}`;
     try {
       const { data: comments } = await this.octokit.rest.issues.listComments({
         owner,
         repo,
         issue_number: issueNumber
       });
-      const existingComment = comments.reverse().find((comment) => comment.body?.startsWith("Agent chat created:"));
+      const existingComment = comments.reverse().find((comment) => comment.body?.startsWith("Agent chat:"));
       if (existingComment) {
         await this.octokit.rest.issues.updateComment({
           owner,
@@ -22766,23 +22784,60 @@ class CoderAgentChatAction {
         });
       }
     } catch (error2) {
-      core.error(`Failed to comment on issue: ${error2}`);
+      core.error(`Failed to post comment: ${error2}`);
     }
   }
+  warnUnwiredInputs() {
+    if (this.inputs.wait === "complete") {
+      core.warning("`wait: complete` is declared but not yet implemented; " + "the action will return immediately.");
+    }
+    if (this.inputs.idempotencyKey !== undefined) {
+      core.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
+    }
+    if (this.inputs.coderOrganization !== undefined) {
+      core.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
+    }
+  }
+  buildOutputs(coderUsername, chat, chatCreated) {
+    const diff = chat.diff_status;
+    const hasPR = diff?.pr_number != null;
+    return {
+      coderUsername,
+      chatId: chat.id,
+      chatUrl: this.generateChatUrl(chat.id),
+      chatCreated,
+      chatStatus: chat.status,
+      chatTitle: chat.title,
+      workspaceId: chat.workspace_id ?? undefined,
+      pullRequestUrl: diff?.url ?? undefined,
+      pullRequestState: diff?.pull_request_state ?? undefined,
+      pullRequestTitle: diff?.pull_request_title ?? undefined,
+      pullRequestNumber: diff?.pr_number ?? undefined,
+      additions: hasPR ? diff?.additions : undefined,
+      deletions: hasPR ? diff?.deletions : undefined,
+      changedFiles: hasPR ? diff?.changed_files : undefined,
+      headBranch: diff?.head_branch ?? undefined,
+      baseBranch: diff?.base_branch ?? undefined,
+      chatErrorMessage: chat.last_error ?? undefined
+    };
+  }
   async run() {
+    this.warnUnwiredInputs();
     let coderUsername;
     if (this.inputs.coderUsername) {
       core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
       coderUsername = this.inputs.coderUsername;
-    } else {
+    } else if (this.inputs.githubUserID !== undefined) {
       core.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
       const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
       coderUsername = coderUser.username;
+    } else {
+      throw new Error("Cannot resolve Coder user: set either `github-user-id` or " + "`coder-username`.");
     }
-    const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubIssueURL();
+    const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
     core.info(`GitHub owner: ${githubOrg}`);
     core.info(`GitHub repo: ${githubRepo}`);
-    core.info(`GitHub issue number: ${githubIssueNumber}`);
+    core.info(`GitHub item number: ${githubIssueNumber}`);
     core.info(`Coder username: ${coderUsername}`);
     if (this.inputs.existingChatId) {
       core.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
@@ -22792,14 +22847,24 @@ class CoderAgentChatAction {
         model_config_id: this.inputs.modelConfigId
       });
       core.info("Message sent successfully");
+      let chat;
+      try {
+        chat = await this.coder.getChat(chatId);
+        core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+      } catch (error2) {
+        core.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error2}`);
+      }
       const chatUrl2 = this.generateChatUrl(chatId);
       if (this.inputs.commentOnIssue) {
-        core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+        core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
         await this.commentOnIssue(chatUrl2, githubOrg, githubRepo, githubIssueNumber);
+      }
+      if (chat) {
+        return this.buildOutputs(coderUsername, chat, false);
       }
       return {
         coderUsername,
-        chatId: this.inputs.existingChatId,
+        chatId,
         chatUrl: chatUrl2,
         chatCreated: false
       };
@@ -22815,18 +22880,12 @@ class CoderAgentChatAction {
     const chatUrl = this.generateChatUrl(createdChat.id);
     core.info(`Chat URL: ${chatUrl}`);
     if (this.inputs.commentOnIssue) {
-      core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+      core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
       await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
-      core.info("Comment posted successfully");
     } else {
-      core.info("Skipping comment on issue (commentOnIssue is false)");
+      core.info("Skipping comment (commentOnIssue is false)");
     }
-    return {
-      coderUsername,
-      chatId: createdChat.id,
-      chatUrl,
-      chatCreated: true
-    };
+    return this.buildOutputs(coderUsername, createdChat, true);
   }
 }
 
@@ -26894,14 +26953,41 @@ var ChatStatusSchema = exports_external.enum([
   "completed",
   "error"
 ]);
+var ChatDiffStatusSchema = exports_external.object({
+  chat_id: exports_external.string().uuid(),
+  url: exports_external.string().nullable().optional(),
+  pull_request_state: exports_external.string().nullable().optional(),
+  pull_request_title: exports_external.string().nullable().optional(),
+  pull_request_draft: exports_external.boolean().default(false),
+  changes_requested: exports_external.boolean().default(false),
+  additions: exports_external.number().default(0),
+  deletions: exports_external.number().default(0),
+  changed_files: exports_external.number().default(0),
+  author_login: exports_external.string().nullable().optional(),
+  author_avatar_url: exports_external.string().nullable().optional(),
+  base_branch: exports_external.string().nullable().optional(),
+  head_branch: exports_external.string().nullable().optional(),
+  pr_number: exports_external.number().nullable().optional(),
+  commits: exports_external.number().nullable().optional(),
+  approved: exports_external.boolean().nullable().optional(),
+  reviewer_count: exports_external.number().nullable().optional(),
+  refreshed_at: exports_external.string().nullable().optional(),
+  stale_at: exports_external.string().nullable().optional()
+});
 var CoderChatSchema = exports_external.object({
   id: ChatIdSchema,
   owner_id: exports_external.string().uuid(),
   workspace_id: exports_external.string().uuid().nullable().optional(),
+  parent_chat_id: exports_external.string().uuid().nullable().optional(),
+  root_chat_id: exports_external.string().uuid().nullable().optional(),
+  last_model_config_id: exports_external.string().uuid().nullable().optional(),
   title: exports_external.string(),
   status: ChatStatusSchema,
+  last_error: exports_external.string().nullable().optional(),
+  diff_status: ChatDiffStatusSchema.nullable().optional(),
   created_at: exports_external.string(),
-  updated_at: exports_external.string()
+  updated_at: exports_external.string(),
+  archived: exports_external.boolean().nullable().optional()
 });
 var CoderChatListResponseSchema = exports_external.array(CoderChatSchema);
 var ChatInputPartSchema = exports_external.object({
@@ -26932,82 +27018,125 @@ class CoderAPIError extends Error {
   }
 }
 
+// src/outputs.ts
+var core2 = __toESM(require_core(), 1);
+var OUTPUT_MAP = [
+  { name: "coder-username", prop: "coderUsername", required: true },
+  { name: "chat-id", prop: "chatId", required: true },
+  { name: "chat-url", prop: "chatUrl", required: true },
+  { name: "chat-created", prop: "chatCreated", required: true },
+  { name: "chat-status", prop: "chatStatus" },
+  { name: "chat-title", prop: "chatTitle" },
+  { name: "workspace-id", prop: "workspaceId" },
+  { name: "pull-request-url", prop: "pullRequestUrl" },
+  { name: "pull-request-state", prop: "pullRequestState" },
+  { name: "pull-request-title", prop: "pullRequestTitle" },
+  { name: "pull-request-number", prop: "pullRequestNumber" },
+  { name: "diff-additions", prop: "additions" },
+  { name: "diff-deletions", prop: "deletions" },
+  { name: "diff-changed-files", prop: "changedFiles" },
+  { name: "head-branch", prop: "headBranch" },
+  { name: "base-branch", prop: "baseBranch" },
+  { name: "chat-error-kind", prop: "chatErrorKind" },
+  { name: "chat-error-message", prop: "chatErrorMessage" }
+];
+function setActionOutputs(outputs) {
+  for (const { name, prop, required } of OUTPUT_MAP) {
+    const value = outputs[prop];
+    if (!required && value === undefined) {
+      continue;
+    }
+    const stringified = typeof value === "string" ? value : String(value ?? "");
+    core2.setOutput(name, stringified);
+  }
+}
+
 // src/schemas.ts
-var BaseInputsSchema = exports_external.object({
+var DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
+var ActionInputsObjectSchema = exports_external.object({
   chatPrompt: exports_external.string().min(1),
   coderToken: exports_external.string().min(1),
   coderURL: exports_external.string().url(),
-  githubIssueURL: exports_external.string().url(),
+  coderOrganization: exports_external.string().min(1).optional(),
+  githubURL: exports_external.string().url(),
   githubToken: exports_external.string(),
-  coderOrganization: exports_external.string().min(1).optional().default("default"),
+  githubUserID: exports_external.number().int().positive().optional(),
+  coderUsername: exports_external.string().min(1).optional(),
   workspaceId: exports_external.string().uuid().optional(),
   modelConfigId: exports_external.string().uuid().optional(),
   existingChatId: exports_external.string().uuid().optional(),
-  commentOnIssue: exports_external.boolean().default(true)
+  commentOnIssue: exports_external.boolean().default(true),
+  wait: exports_external.enum(["none", "complete"]).default("none"),
+  waitTimeoutSeconds: exports_external.coerce.number().int().positive().default(DEFAULT_WAIT_TIMEOUT_SECONDS),
+  idempotencyKey: exports_external.string().min(1).optional()
 });
-var WithGithubUserIDSchema = BaseInputsSchema.extend({
-  githubUserID: exports_external.number().min(1),
-  coderUsername: exports_external.undefined()
+var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.githubUserID !== undefined && data.coderUsername !== undefined), {
+  message: "Cannot set both github-user-id and coder-username; choose one.",
+  path: ["coderUsername"]
 });
-var WithCoderUsernameSchema = BaseInputsSchema.extend({
-  githubUserID: exports_external.undefined(),
-  coderUsername: exports_external.string().min(1)
-});
-var ActionInputsSchema = exports_external.union([
-  WithGithubUserIDSchema,
-  WithCoderUsernameSchema
-]);
 var ActionOutputsSchema = exports_external.object({
   coderUsername: exports_external.string(),
   chatId: exports_external.string().uuid(),
   chatUrl: exports_external.string().url(),
-  chatCreated: exports_external.boolean()
+  chatCreated: exports_external.boolean(),
+  chatStatus: exports_external.string().optional(),
+  chatTitle: exports_external.string().optional(),
+  workspaceId: exports_external.string().uuid().optional(),
+  pullRequestUrl: exports_external.string().optional(),
+  pullRequestState: exports_external.string().optional(),
+  pullRequestTitle: exports_external.string().optional(),
+  pullRequestNumber: exports_external.number().optional(),
+  additions: exports_external.number().optional(),
+  deletions: exports_external.number().optional(),
+  changedFiles: exports_external.number().optional(),
+  headBranch: exports_external.string().optional(),
+  baseBranch: exports_external.string().optional(),
+  chatErrorKind: exports_external.string().optional(),
+  chatErrorMessage: exports_external.string().optional()
 });
 
 // src/index.ts
 async function main() {
   try {
-    const githubUserIdInput = core2.getInput("github-user-id");
+    const githubUserIdInput = core3.getInput("github-user-id");
     const githubUserID = githubUserIdInput ? Number.parseInt(githubUserIdInput, 10) : undefined;
     const inputs = ActionInputsSchema.parse({
-      coderURL: core2.getInput("coder-url", { required: true }),
-      coderToken: core2.getInput("coder-token", { required: true }),
-      chatPrompt: core2.getInput("chat-prompt", { required: true }),
-      coderOrganization: core2.getInput("coder-organization", {
-        required: true
-      }),
-      githubIssueURL: core2.getInput("github-issue-url", { required: true }),
-      githubToken: core2.getInput("github-token", { required: true }),
+      coderURL: core3.getInput("coder-url", { required: true }),
+      coderToken: core3.getInput("coder-token", { required: true }),
+      chatPrompt: core3.getInput("chat-prompt", { required: true }),
+      coderOrganization: core3.getInput("coder-organization") || undefined,
+      githubURL: core3.getInput("github-url", { required: true }),
+      githubToken: core3.getInput("github-token", { required: true }),
       githubUserID,
-      coderUsername: core2.getInput("coder-username") || undefined,
-      workspaceId: core2.getInput("workspace-id") || undefined,
-      modelConfigId: core2.getInput("model-config-id") || undefined,
-      existingChatId: core2.getInput("existing-chat-id") || undefined,
-      commentOnIssue: core2.getBooleanInput("comment-on-issue")
+      coderUsername: core3.getInput("coder-username") || undefined,
+      workspaceId: core3.getInput("workspace-id") || undefined,
+      modelConfigId: core3.getInput("model-config-id") || undefined,
+      existingChatId: core3.getInput("existing-chat-id") || undefined,
+      commentOnIssue: core3.getBooleanInput("comment-on-issue"),
+      wait: core3.getInput("wait") || undefined,
+      waitTimeoutSeconds: core3.getInput("wait-timeout-seconds") || undefined,
+      idempotencyKey: core3.getInput("idempotency-key") || undefined
     });
-    core2.debug("Inputs validated successfully");
-    core2.debug(`Coder URL: ${inputs.coderURL}`);
-    core2.debug(`Organization: ${inputs.coderOrganization}`);
+    core3.debug("Inputs validated successfully");
+    core3.debug(`Coder URL: ${inputs.coderURL}`);
+    core3.debug(`Organization: ${inputs.coderOrganization}`);
     const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
     const octokit = github.getOctokit(inputs.githubToken);
-    core2.debug("Clients initialized");
+    core3.debug("Clients initialized");
     const action = new CoderAgentChatAction(coder, octokit, inputs);
     const outputs = await action.run();
-    core2.setOutput("coder-username", outputs.coderUsername);
-    core2.setOutput("chat-id", outputs.chatId);
-    core2.setOutput("chat-url", outputs.chatUrl);
-    core2.setOutput("chat-created", outputs.chatCreated.toString());
-    core2.debug("Action completed successfully");
-    core2.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
+    setActionOutputs(outputs);
+    core3.debug("Action completed successfully");
+    core3.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
   } catch (error2) {
     if (error2 instanceof Error) {
-      core2.setFailed(error2.message);
+      core3.setFailed(error2.message);
       console.error("Action failed:", error2);
       if (error2.stack) {
         console.error("Stack trace:", error2.stack);
       }
     } else {
-      core2.setFailed("Unknown error occurred");
+      core3.setFailed("Unknown error occurred");
       console.error("Unknown error:", error2);
     }
     process.exit(1);

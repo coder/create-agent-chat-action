@@ -1,5 +1,10 @@
 import * as core from "@actions/core";
-import type { CreateChatRequest, CoderClient, ChatId } from "./coder-client";
+import type {
+	CreateChatRequest,
+	CoderClient,
+	CoderChat,
+	ChatId,
+} from "./coder-client";
 import type { ActionInputs, ActionOutputs } from "./schemas";
 import type { getOctokit } from "@actions/github";
 
@@ -13,22 +18,23 @@ export class CoderAgentChatAction {
 	) {}
 
 	/**
-	 * Parse owner and repo from issue URL
+	 * Parse owner, repo, and item number from a GitHub issue or PR URL.
+	 * The number namespace is shared between issues and PRs in a repo.
 	 */
-	parseGithubIssueURL(): {
+	parseGithubURL(): {
 		githubOrg: string;
 		githubRepo: string;
 		githubIssueNumber: number;
 	} {
-		if (!this.inputs.githubIssueURL) {
-			throw new Error("Missing issue URL");
+		if (!this.inputs.githubURL) {
+			throw new Error("Missing GitHub URL");
 		}
 
-		const match = this.inputs.githubIssueURL.match(
-			/([^/]+)\/([^/]+)\/issues\/(\d+)/,
+		const match = this.inputs.githubURL.match(
+			/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/,
 		);
 		if (!match) {
-			throw new Error(`Invalid issue URL: ${this.inputs.githubIssueURL}`);
+			throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
 		}
 		return {
 			githubOrg: match[1],
@@ -46,7 +52,7 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Comment on GitHub issue with chat link
+	 * Comment on the linked GitHub issue or pull request with the chat link.
 	 */
 	async commentOnIssue(
 		chatUrl: string,
@@ -54,7 +60,7 @@ export class CoderAgentChatAction {
 		repo: string,
 		issueNumber: number,
 	): Promise<void> {
-		const body = `Agent chat created: ${chatUrl}`;
+		const body = `Agent chat: ${chatUrl}`;
 
 		try {
 			const { data: comments } = await this.octokit.rest.issues.listComments({
@@ -66,7 +72,7 @@ export class CoderAgentChatAction {
 			const existingComment = comments
 				.reverse()
 				.find((comment: { body?: string }) =>
-					comment.body?.startsWith("Agent chat created:"),
+					comment.body?.startsWith("Agent chat:"),
 				);
 
 			if (existingComment) {
@@ -85,19 +91,85 @@ export class CoderAgentChatAction {
 				});
 			}
 		} catch (error) {
-			core.error(`Failed to comment on issue: ${error}`);
+			core.error(`Failed to post comment: ${error}`);
 		}
+	}
+
+	/**
+	 * Warn loudly when the user opts in to inputs whose runtime behavior
+	 * is not yet wired. The schema accepts these so the contract is stable;
+	 * the warning prevents silent no-ops for workflow authors who explicitly
+	 * opt in.
+	 */
+	warnUnwiredInputs(): void {
+		if (this.inputs.wait === "complete") {
+			core.warning(
+				"`wait: complete` is declared but not yet implemented; " +
+					"the action will return immediately.",
+			);
+		}
+		if (this.inputs.idempotencyKey !== undefined) {
+			core.warning(
+				"`idempotency-key` is declared but not yet implemented; " +
+					"the action will always create a new chat.",
+			);
+		}
+		if (this.inputs.coderOrganization !== undefined) {
+			core.warning(
+				"`coder-organization` is declared but not yet wired through to " +
+					"the API; the chat will be created without an explicit " +
+					"organization.",
+			);
+		}
+	}
+
+	/**
+	 * Build a rich ActionOutputs from a Chat response.
+	 */
+	buildOutputs(
+		coderUsername: string,
+		chat: CoderChat,
+		chatCreated: boolean,
+	): ActionOutputs {
+		const diff = chat.diff_status;
+		// Two nullish-handling patterns:
+		//   `?? undefined` for `.nullable().optional()` fields.
+		//   gated `hasPR ? ... : undefined` for `.default(0)` numerics, so
+		//     a chat with diff_status but no PR yet does not emit a
+		//     misleading truthy "0".
+		const hasPR = diff?.pr_number != null;
+		return {
+			coderUsername,
+			chatId: chat.id,
+			chatUrl: this.generateChatUrl(chat.id),
+			chatCreated,
+			chatStatus: chat.status,
+			chatTitle: chat.title,
+			workspaceId: chat.workspace_id ?? undefined,
+			pullRequestUrl: diff?.url ?? undefined,
+			pullRequestState: diff?.pull_request_state ?? undefined,
+			pullRequestTitle: diff?.pull_request_title ?? undefined,
+			pullRequestNumber: diff?.pr_number ?? undefined,
+			additions: hasPR ? diff?.additions : undefined,
+			deletions: hasPR ? diff?.deletions : undefined,
+			changedFiles: hasPR ? diff?.changed_files : undefined,
+			headBranch: diff?.head_branch ?? undefined,
+			baseBranch: diff?.base_branch ?? undefined,
+			chatErrorMessage: chat.last_error ?? undefined,
+		};
 	}
 
 	/**
 	 * Main action execution
 	 */
 	async run(): Promise<ActionOutputs> {
+		this.warnUnwiredInputs();
+
 		let coderUsername: string;
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
 			coderUsername = this.inputs.coderUsername;
-		} else {
+		} else if (this.inputs.githubUserID !== undefined) {
 			core.info(
 				`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`,
 			);
@@ -105,13 +177,21 @@ export class CoderAgentChatAction {
 				this.inputs.githubUserID,
 			);
 			coderUsername = coderUser.username;
+		} else {
+			// Both identity inputs are unset. The schema permits this so the
+			// runtime can later auto-resolve from the workflow context; until
+			// that path lands, fail with a clear message rather than crashing
+			// inside the user lookup.
+			throw new Error(
+				"Cannot resolve Coder user: set either `github-user-id` or " +
+					"`coder-username`.",
+			);
 		}
 
-		const { githubOrg, githubRepo, githubIssueNumber } =
-			this.parseGithubIssueURL();
+		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
 		core.info(`GitHub owner: ${githubOrg}`);
 		core.info(`GitHub repo: ${githubRepo}`);
-		core.info(`GitHub issue number: ${githubIssueNumber}`);
+		core.info(`GitHub item number: ${githubIssueNumber}`);
 		core.info(`Coder username: ${coderUsername}`);
 
 		// If an existing chat ID is provided, send a message to it
@@ -127,11 +207,25 @@ export class CoderAgentChatAction {
 			});
 			core.info("Message sent successfully");
 
+			// Fetch the full chat after the message so outputs are consistent
+			// with the create path. If the fetch fails, fall back to minimal
+			// outputs rather than failing the step, since the message has
+			// already been sent.
+			let chat: CoderChat | undefined;
+			try {
+				chat = await this.coder.getChat(chatId);
+				core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+			} catch (error) {
+				core.warning(
+					`Failed to fetch chat after sending message; outputs will be minimal: ${error}`,
+				);
+			}
+
 			const chatUrl = this.generateChatUrl(chatId);
 
 			if (this.inputs.commentOnIssue) {
 				core.info(
-					`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+					`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 				);
 				await this.commentOnIssue(
 					chatUrl,
@@ -141,9 +235,12 @@ export class CoderAgentChatAction {
 				);
 			}
 
+			if (chat) {
+				return this.buildOutputs(coderUsername, chat, false);
+			}
 			return {
 				coderUsername,
-				chatId: this.inputs.existingChatId,
+				chatId,
 				chatUrl,
 				chatCreated: false,
 			};
@@ -167,7 +264,7 @@ export class CoderAgentChatAction {
 
 		if (this.inputs.commentOnIssue) {
 			core.info(
-				`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+				`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 			);
 			await this.commentOnIssue(
 				chatUrl,
@@ -175,16 +272,10 @@ export class CoderAgentChatAction {
 				githubRepo,
 				githubIssueNumber,
 			);
-			core.info("Comment posted successfully");
 		} else {
-			core.info("Skipping comment on issue (commentOnIssue is false)");
+			core.info("Skipping comment (commentOnIssue is false)");
 		}
 
-		return {
-			coderUsername,
-			chatId: createdChat.id,
-			chatUrl,
-			chatCreated: true,
-		};
+		return this.buildOutputs(coderUsername, createdChat, true);
 	}
 }

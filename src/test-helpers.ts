@@ -10,6 +10,7 @@ import type {
 	ChatId,
 } from "./coder-client";
 import type { ActionInputs } from "./schemas";
+import { DEFAULT_WAIT_TIMEOUT_SECONDS } from "./schemas";
 
 /**
  * Mock data for tests
@@ -44,11 +45,43 @@ export const mockUserListDuplicate: CoderSDKGetUsersResponse = {
 export const mockChat: CoderChat = {
 	id: ChatIdSchema.parse("990e8400-e29b-41d4-a716-446655440000"),
 	owner_id: "550e8400-e29b-41d4-a716-446655440000",
-	workspace_id: null,
+	workspace_id: "aa0e8400-e29b-41d4-a716-446655440000",
+	parent_chat_id: null,
+	root_chat_id: null,
+	last_model_config_id: "bb0e8400-e29b-41d4-a716-446655440000",
 	title: "Test chat",
 	status: "running",
+	last_error: null,
+	diff_status: null,
 	created_at: "2024-01-01T00:00:00Z",
 	updated_at: "2024-01-01T00:00:00Z",
+	archived: false,
+};
+
+export const mockChatWithDiff: CoderChat = {
+	...mockChat,
+	status: "completed",
+	diff_status: {
+		chat_id: "990e8400-e29b-41d4-a716-446655440000",
+		url: "https://github.com/test-org/test-repo/pull/42",
+		pull_request_state: "open",
+		pull_request_title: "Fix issue #123",
+		pull_request_draft: false,
+		changes_requested: false,
+		additions: 50,
+		deletions: 10,
+		changed_files: 3,
+		author_login: "testuser",
+		author_avatar_url: null,
+		base_branch: "main",
+		head_branch: "fix/issue-123",
+		pr_number: 42,
+		commits: 2,
+		approved: false,
+		reviewer_count: 0,
+		refreshed_at: "2024-01-01T01:00:00Z",
+		stale_at: null,
+	},
 };
 
 export const mockChatMessageResponse: CreateChatMessageResponse = {
@@ -65,11 +98,13 @@ export function createMockInputs(
 		chatPrompt: "Test prompt",
 		coderToken: "test-token",
 		coderURL: "https://coder.test",
-		coderOrganization: "coder",
+		coderOrganization: undefined,
 		githubToken: "github-token",
-		githubIssueURL: "https://github.com/test-org/test-repo/issues/123",
+		githubURL: "https://github.com/test-org/test-repo/issues/123",
 		githubUserID: 12345,
 		commentOnIssue: true,
+		wait: "none",
+		waitTimeoutSeconds: DEFAULT_WAIT_TIMEOUT_SECONDS,
 		...overrides,
 	} as ActionInputs;
 }

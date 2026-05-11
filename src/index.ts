@@ -2,6 +2,7 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { CoderAgentChatAction } from "./action";
 import { RealCoderClient } from "./coder-client";
+import { setActionOutputs } from "./outputs";
 import { ActionInputsSchema } from "./schemas";
 
 async function main() {
@@ -15,10 +16,8 @@ async function main() {
 			coderURL: core.getInput("coder-url", { required: true }),
 			coderToken: core.getInput("coder-token", { required: true }),
 			chatPrompt: core.getInput("chat-prompt", { required: true }),
-			coderOrganization: core.getInput("coder-organization", {
-				required: true,
-			}),
-			githubIssueURL: core.getInput("github-issue-url", { required: true }),
+			coderOrganization: core.getInput("coder-organization") || undefined,
+			githubURL: core.getInput("github-url", { required: true }),
 			githubToken: core.getInput("github-token", { required: true }),
 			githubUserID,
 			coderUsername: core.getInput("coder-username") || undefined,
@@ -26,6 +25,9 @@ async function main() {
 			modelConfigId: core.getInput("model-config-id") || undefined,
 			existingChatId: core.getInput("existing-chat-id") || undefined,
 			commentOnIssue: core.getBooleanInput("comment-on-issue"),
+			wait: core.getInput("wait") || undefined,
+			waitTimeoutSeconds: core.getInput("wait-timeout-seconds") || undefined,
+			idempotencyKey: core.getInput("idempotency-key") || undefined,
 		});
 
 		core.debug("Inputs validated successfully");
@@ -40,10 +42,7 @@ async function main() {
 		const action = new CoderAgentChatAction(coder, octokit, inputs);
 		const outputs = await action.run();
 
-		core.setOutput("coder-username", outputs.coderUsername);
-		core.setOutput("chat-id", outputs.chatId);
-		core.setOutput("chat-url", outputs.chatUrl);
-		core.setOutput("chat-created", outputs.chatCreated.toString());
+		setActionOutputs(outputs);
 
 		core.debug("Action completed successfully");
 		core.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
