@@ -22732,9 +22732,6 @@ var github = __toESM(require_github(), 1);
 // src/action.ts
 var core2 = __toESM(require_core(), 1);
 
-// src/comment.ts
-var core = __toESM(require_core(), 1);
-
 // node_modules/zod/v3/external.js
 var exports_external = {};
 __export(exports_external, {
@@ -26754,6 +26751,22 @@ class RealCoderClient {
     }
     return CoderSDKUserSchema.parse(liveUsers[0]);
   }
+  async getCoderUserByUsername(username) {
+    if (!username) {
+      throw new CoderAPIError("Coder username cannot be empty", 400);
+    }
+    const endpoint = `/api/v2/users/${encodeURIComponent(username)}`;
+    const response = await this.request(endpoint);
+    return CoderSDKUserSchema.parse(response);
+  }
+  async getOrganizationByName(name) {
+    if (!name) {
+      throw new CoderAPIError("Organization name cannot be empty", 400);
+    }
+    const endpoint = `/api/v2/organizations/${encodeURIComponent(name)}`;
+    const response = await this.request(endpoint);
+    return CoderOrganizationSchema.parse(response);
+  }
   async createChat(params) {
     const endpoint = "/api/experimental/chats";
     const response = await this.request(endpoint, {
@@ -26793,6 +26806,11 @@ var CoderSDKUserSchema = exports_external.object({
 });
 var CoderSDKGetUsersResponseSchema = exports_external.object({
   users: exports_external.array(CoderSDKUserSchema)
+});
+var CoderOrganizationSchema = exports_external.object({
+  id: exports_external.string().uuid(),
+  name: exports_external.string(),
+  display_name: exports_external.string().optional()
 });
 var ChatStatusSchema = exports_external.enum([
   "waiting",
@@ -26844,6 +26862,7 @@ var ChatInputPartSchema = exports_external.object({
   text: exports_external.string().min(1)
 });
 var CreateChatRequestSchema = exports_external.object({
+  organization_id: exports_external.string().uuid(),
   content: exports_external.array(ChatInputPartSchema).min(1),
   workspace_id: exports_external.string().uuid().optional(),
   model_config_id: exports_external.string().uuid().optional()
@@ -26878,6 +26897,7 @@ class CoderAPIError extends Error {
 }
 
 // src/comment.ts
+var core = __toESM(require_core(), 1);
 var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
 var COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
 var COMMENT_MARKER_SUFFIX = " -->";
@@ -27201,9 +27221,6 @@ class CoderAgentChatAction {
     if (this.inputs.idempotencyKey !== undefined) {
       core2.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
     }
-    if (this.inputs.coderOrganization !== undefined) {
-      core2.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
-    }
   }
   buildOutputs(coderUsername, chat, chatCreated) {
     const diff = chat.diff_status;
@@ -27303,12 +27320,12 @@ class CoderAgentChatAction {
   async resolveCoderUsername() {
     if (this.inputs.coderUsername) {
       core2.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-      return this.inputs.coderUsername;
+      return { username: this.inputs.coderUsername };
     }
     if (this.inputs.githubUserID !== undefined) {
       core2.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
       const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
-      return coderUser.username;
+      return { username: coderUser.username, user: coderUser };
     }
     if (this.context.eventName === "schedule") {
       throw new Error("Cannot auto-resolve a GitHub identity for `schedule` events: " + "`github.context.actor` for cron-triggered runs is the workflow " + "file's last editor, not the triggering user. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
@@ -27325,7 +27342,7 @@ class CoderAgentChatAction {
       core2.info(`Auto-resolving Coder user from github.context.payload.sender.id: ${senderId}`);
       try {
         const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
-        return coderUser.username;
+        return { username: coderUser.username, user: coderUser };
       } catch (err) {
         throw new Error(`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
       }
@@ -27344,12 +27361,48 @@ class CoderAgentChatAction {
       }
       try {
         const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
-        return coderUser.username;
+        return { username: coderUser.username, user: coderUser };
       } catch (err) {
         throw new Error(`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
       }
     }
     throw new Error("Could not auto-resolve a GitHub identity from the workflow context. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+  }
+  async resolveOrganizationID(coderUsername, resolvedUser) {
+    if (this.inputs.coderOrganization) {
+      core2.info(`Resolving Coder organization by name: ${this.inputs.coderOrganization}`);
+      try {
+        const org = await this.coder.getOrganizationByName(this.inputs.coderOrganization);
+        return org.id;
+      } catch (err) {
+        if (err instanceof CoderAPIError && err.statusCode === 404) {
+          throw new ActionFailureError("org_not_found", `Coder organization '${this.inputs.coderOrganization}' not found. ` + "Check the `coder-organization` input value.", undefined, { cause: err });
+        }
+        throw err;
+      }
+    }
+    let user;
+    if (resolvedUser) {
+      user = resolvedUser;
+    } else {
+      try {
+        user = await this.coder.getCoderUserByUsername(coderUsername);
+      } catch (err) {
+        if (err instanceof CoderAPIError && err.statusCode === 404) {
+          throw new ActionFailureError("user_not_found", `Coder user '${coderUsername}' not found. ` + "Check the `coder-username` input value.", undefined, { cause: err });
+        }
+        throw err;
+      }
+    }
+    const orgID = user.organization_ids[0];
+    if (!orgID) {
+      throw new ActionFailureError("org_not_found", `Coder user '${user.username}' has no organization memberships. ` + "Set the `coder-organization` input to the organization the chat " + "should run in.");
+    }
+    if (user.organization_ids.length > 1) {
+      core2.warning(`Coder user '${user.username}' has ${user.organization_ids.length} organization memberships; ` + `defaulting to ${orgID}. ` + "This choice is non-deterministic. Set the `coder-organization` input to pin it.");
+    }
+    core2.info(`Defaulting to first organization membership of Coder user '${user.username}': ${orgID}`);
+    return orgID;
   }
   async run() {
     try {
@@ -27398,7 +27451,7 @@ class CoderAgentChatAction {
   }
   async runInner() {
     this.warnUnwiredInputs();
-    const coderUsername = await this.resolveCoderUsername();
+    const { username: coderUsername, user: resolvedUser } = await this.resolveCoderUsername();
     const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
     core2.info(`GitHub owner: ${githubOrg}`);
     core2.info(`GitHub repo: ${githubRepo}`);
@@ -27441,7 +27494,9 @@ class CoderAgentChatAction {
       };
     }
     core2.info("Creating new agent chat...");
+    const organizationID = await this.resolveOrganizationID(coderUsername, resolvedUser);
     const req = {
+      organization_id: organizationID,
       content: [{ type: "text", text: this.inputs.chatPrompt }],
       workspace_id: this.inputs.workspaceId,
       model_config_id: this.inputs.modelConfigId

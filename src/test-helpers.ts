@@ -4,6 +4,7 @@ import type {
 	CoderSDKUser,
 	CoderSDKGetUsersResponse,
 	CoderChat,
+	CoderOrganization,
 	CreateChatRequest,
 	CreateChatMessageRequest,
 	CreateChatMessageResponse,
@@ -61,6 +62,21 @@ export const mockUserListDuplicate: CoderSDKGetUsersResponse = {
 			username: "testuser2",
 		},
 	],
+};
+
+// User with no organization memberships.
+export const mockUserNoOrgs: CoderSDKUser = {
+	...mockUser,
+	organization_ids: [],
+};
+
+// Default organization fixture. The id is intentionally distinct from
+// `mockUser.organization_ids[0]` so org-resolution tests can prove which path
+// produced the value rather than relying on mock-call assertions alone.
+export const mockOrganization: CoderOrganization = {
+	id: "cc0e8400-e29b-41d4-a716-446655440000",
+	name: "coder",
+	display_name: "Coder",
 };
 
 export const mockChat: CoderChat = {
@@ -135,6 +151,12 @@ export function createMockInputs(
  */
 export class MockCoderClient implements CoderClient {
 	public mockGetCoderUserByGithubID = mock();
+	public mockGetCoderUserByUsername = mock((_username: string) =>
+		Promise.resolve(mockUser),
+	);
+	public mockGetOrganizationByName = mock((_name: string) =>
+		Promise.resolve(mockOrganization),
+	);
 	public mockCreateChat = mock();
 	public mockCreateChatMessage = mock();
 	public mockGetChat = mock();
@@ -142,6 +164,14 @@ export class MockCoderClient implements CoderClient {
 
 	async getCoderUserByGitHubId(githubUserId: number): Promise<CoderSDKUser> {
 		return this.mockGetCoderUserByGithubID(githubUserId);
+	}
+
+	async getCoderUserByUsername(username: string): Promise<CoderSDKUser> {
+		return this.mockGetCoderUserByUsername(username);
+	}
+
+	async getOrganizationByName(name: string): Promise<CoderOrganization> {
+		return this.mockGetOrganizationByName(name);
 	}
 
 	async createChat(params: CreateChatRequest): Promise<CoderChat> {

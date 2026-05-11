@@ -5,6 +5,10 @@ export interface CoderClient {
 		githubUserId: number | undefined,
 	): Promise<CoderSDKUser>;
 
+	getCoderUserByUsername(username: string): Promise<CoderSDKUser>;
+
+	getOrganizationByName(name: string): Promise<CoderOrganization>;
+
 	createChat(params: CreateChatRequest): Promise<CoderChat>;
 
 	createChatMessage(
@@ -96,6 +100,24 @@ export class RealCoderClient implements CoderClient {
 		return CoderSDKUserSchema.parse(liveUsers[0]);
 	}
 
+	async getCoderUserByUsername(username: string): Promise<CoderSDKUser> {
+		if (!username) {
+			throw new CoderAPIError("Coder username cannot be empty", 400);
+		}
+		const endpoint = `/api/v2/users/${encodeURIComponent(username)}`;
+		const response = await this.request<unknown>(endpoint);
+		return CoderSDKUserSchema.parse(response);
+	}
+
+	async getOrganizationByName(name: string): Promise<CoderOrganization> {
+		if (!name) {
+			throw new CoderAPIError("Organization name cannot be empty", 400);
+		}
+		const endpoint = `/api/v2/organizations/${encodeURIComponent(name)}`;
+		const response = await this.request<unknown>(endpoint);
+		return CoderOrganizationSchema.parse(response);
+	}
+
 	async createChat(params: CreateChatRequest): Promise<CoderChat> {
 		const endpoint = "/api/experimental/chats";
 		const response = await this.request<unknown>(endpoint, {
@@ -154,6 +176,15 @@ export const CoderSDKGetUsersResponseSchema = z.object({
 export type CoderSDKGetUsersResponse = z.infer<
 	typeof CoderSDKGetUsersResponseSchema
 >;
+
+// Organization schema. Returned by `GET /api/v2/organizations/{name}` and
+// used to resolve the `coder-organization` input to a UUID for createChat.
+export const CoderOrganizationSchema = z.object({
+	id: z.string().uuid(),
+	name: z.string(),
+	display_name: z.string().optional(),
+});
+export type CoderOrganization = z.infer<typeof CoderOrganizationSchema>;
 
 // Chat status enum
 export const ChatStatusSchema = z.enum([
@@ -218,8 +249,10 @@ export const ChatInputPartSchema = z.object({
 });
 export type ChatInputPart = z.infer<typeof ChatInputPartSchema>;
 
-// Create chat request
+// Create chat request. The chats API requires `organization_id` on every
+// create.
 export const CreateChatRequestSchema = z.object({
+	organization_id: z.string().uuid(),
 	content: z.array(ChatInputPartSchema).min(1),
 	workspace_id: z.string().uuid().optional(),
 	model_config_id: z.string().uuid().optional(),
