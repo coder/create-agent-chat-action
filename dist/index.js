@@ -26756,8 +26756,15 @@ class RealCoderClient {
       throw new CoderAPIError("Coder username cannot be empty", 400);
     }
     const endpoint = `/api/v2/users/${encodeURIComponent(username)}`;
-    const response = await this.request(endpoint);
-    return CoderSDKUserSchema.parse(response);
+    try {
+      const response = await this.request(endpoint);
+      return CoderSDKUserSchema.parse(response);
+    } catch (err) {
+      if (err instanceof CoderAPIError && err.statusCode === 404) {
+        throw new CoderAPIError(`No Coder user found with username "${username}"`, 404, err.response, "user_not_found");
+      }
+      throw err;
+    }
   }
   async getOrganizationByName(name) {
     if (!name) {
@@ -26788,8 +26795,19 @@ class RealCoderClient {
     const response = await this.request(endpoint);
     return CoderChatSchema.parse(response);
   }
-  async listChats() {
-    const endpoint = "/api/experimental/chats";
+  async listChats(opts) {
+    const params = [];
+    if (opts?.label !== undefined) {
+      const labels = Array.isArray(opts.label) ? opts.label : [opts.label];
+      for (const l of labels) {
+        params.push(`label=${encodeURIComponent(l)}`);
+      }
+    }
+    if (opts?.archived === false) {
+      params.push(`q=${encodeURIComponent("archived:false")}`);
+    }
+    const query = params.length ? `?${params.join("&")}` : "";
+    const endpoint = `/api/experimental/chats${query}`;
     const response = await this.request(endpoint);
     const parsed = CoderChatListResponseSchema.parse(response);
     return parsed;
@@ -26865,7 +26883,8 @@ var CreateChatRequestSchema = exports_external.object({
   organization_id: exports_external.string().uuid(),
   content: exports_external.array(ChatInputPartSchema).min(1),
   workspace_id: exports_external.string().uuid().optional(),
-  model_config_id: exports_external.string().uuid().optional()
+  model_config_id: exports_external.string().uuid().optional(),
+  labels: exports_external.record(exports_external.string(), exports_external.string()).optional()
 });
 var CreateChatMessageRequestSchema = exports_external.object({
   content: exports_external.array(ChatInputPartSchema).min(1),
@@ -26896,6 +26915,20 @@ class CoderAPIError extends Error {
   }
 }
 
+// src/sanitize-label-key.ts
+var RESERVED_LABEL_KEYS = new Set([
+  "coder-agent-chat-action",
+  "gh-target",
+  "coder-agent-chat-action-user"
+]);
+function sanitizeLabelKey(input) {
+  const lowered = input.toLowerCase();
+  const replaced = lowered.replace(/[^a-z0-9._/-]/g, "-");
+  const trimmed = replaced.replace(/^[^a-z0-9]+/, "");
+  const nonEmpty = trimmed.length > 0 ? trimmed : "key";
+  return nonEmpty.slice(0, 64);
+}
+
 // src/comment.ts
 var core = __toESM(require_core(), 1);
 var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
@@ -26906,7 +26939,7 @@ function buildCommentMarker(key) {
 }
 function deriveCommentKey(inputs) {
   if (inputs.idempotencyKey) {
-    return inputs.idempotencyKey;
+    return sanitizeLabelKey(inputs.idempotencyKey);
   }
   const match = inputs.githubURL.match(GITHUB_URL_REGEX);
   let base;
@@ -27296,11 +27329,7 @@ class CoderAgentChatAction {
       marker
     });
   }
-  warnUnwiredInputs() {
-    if (this.inputs.idempotencyKey !== undefined) {
-      core2.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
-    }
-  }
+  warnUnwiredInputs() {}
   buildOutputs(coderUsername, chat, chatCreated) {
     const diff = chat.diff_status;
     const hasPR = diff?.pr_number != null;
@@ -27399,7 +27428,16 @@ class CoderAgentChatAction {
   async resolveCoderUsername() {
     if (this.inputs.coderUsername) {
       core2.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-      return { username: this.inputs.coderUsername };
+      let coderUser;
+      try {
+        coderUser = await this.coder.getCoderUserByUsername(this.inputs.coderUsername);
+      } catch (err) {
+        if (err instanceof CoderAPIError && err.statusCode === 404) {
+          throw new ActionFailureError("user_not_found", `Coder user '${this.inputs.coderUsername}' not found. ` + "Check the `coder-username` input value.", undefined, { cause: err });
+        }
+        throw err;
+      }
+      return { username: coderUser.username, user: coderUser };
     }
     if (this.inputs.githubUserID !== undefined) {
       core2.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
@@ -27581,6 +27619,43 @@ class CoderAgentChatAction {
         chatCreated: false
       };
     }
+    const sanitizedKey = this.inputs.idempotencyKey ? sanitizeLabelKey(this.inputs.idempotencyKey) : undefined;
+    if (sanitizedKey && RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+      throw new Error(`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` + `Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` + "Choose a different idempotency-key value.");
+    }
+    const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
+    if (sanitizedKey) {
+      const follow = await this.findIdempotentMatch(sanitizedKey, ghTarget, resolvedUser.id);
+      if (follow) {
+        core2.info(`Reusing existing chat by idempotency label: ${follow.id}`);
+        await this.coder.createChatMessage(follow.id, {
+          content: [{ type: "text", text: this.inputs.chatPrompt }],
+          model_config_id: this.inputs.modelConfigId
+        });
+        core2.info("Message sent successfully");
+        const chatUrl2 = this.generateChatUrl(follow.id);
+        let refreshed = follow;
+        try {
+          const fetched = await this.coder.getChat(follow.id);
+          core2.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
+          refreshed = fetched;
+        } catch (error3) {
+          core2.warning(`Failed to fetch chat after sending message; outputs reflect pre-message state: ${error3}`);
+        }
+        if (this.inputs.commentOnIssue) {
+          core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+          await this.commentOnIssue({
+            chatUrl: chatUrl2,
+            owner: githubOrg,
+            repo: githubRepo,
+            issueNumber: githubIssueNumber,
+            chatCreated: false,
+            chat: refreshed
+          });
+        }
+        return this.buildOutputs(coderUsername, refreshed, false);
+      }
+    }
     core2.info("Creating new agent chat...");
     const organizationID = await this.resolveOrganizationID(coderUsername, resolvedUser);
     const req = {
@@ -27589,6 +27664,9 @@ class CoderAgentChatAction {
       workspace_id: this.inputs.workspaceId,
       model_config_id: this.inputs.modelConfigId
     };
+    if (sanitizedKey) {
+      req.labels = this.buildIdempotencyLabels(sanitizedKey, ghTarget, resolvedUser.id);
+    }
     const createdChat = await this.coder.createChat(req);
     core2.info(`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
     const chatUrl = this.generateChatUrl(createdChat.id);
@@ -27617,6 +27695,49 @@ class CoderAgentChatAction {
       core2.info("Skipping comment on issue (commentOnIssue is false)");
     }
     return this.buildOutputs(coderUsername, finalChat, true);
+  }
+  async findIdempotentMatch(sanitizedKey, ghTarget, coderUserId) {
+    const keyLabel = `${sanitizedKey}:true`;
+    const targetLabel = `gh-target:${ghTarget}`;
+    const userLabel = `coder-agent-chat-action-user:${coderUserId}`;
+    let chats;
+    try {
+      chats = await this.coder.listChats({
+        label: [keyLabel, targetLabel, userLabel],
+        archived: false
+      });
+    } catch (err) {
+      const inner = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to look up chats by idempotency labels [${keyLabel}, ${targetLabel}, ${userLabel}]: ${inner}`, { cause: err });
+    }
+    const live = chats.filter((chat) => chat.archived !== true);
+    if (live.length === 0) {
+      return;
+    }
+    live.sort((a, b) => {
+      if (a.updated_at < b.updated_at)
+        return 1;
+      if (a.updated_at > b.updated_at)
+        return -1;
+      return 0;
+    });
+    if (live.length > 1) {
+      const ignored = live.slice(1).map((c) => c.id).join(", ");
+      core2.warning(`Multiple non-archived chats matched idempotency-key=${this.inputs.idempotencyKey} for ${ghTarget}. ` + `Reusing the most recent (${live[0].id}) and ignoring: ${ignored}. ` + "Concurrent triggers can race; subsequent runs converge on the " + "most recent match.");
+    }
+    return live[0];
+  }
+  buildIdempotencyLabels(sanitizedKey, ghTarget, coderUserId) {
+    if (RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+      throw new Error(`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` + `Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` + "Choose a different idempotency-key value.");
+    }
+    const labels = {
+      "coder-agent-chat-action": "true",
+      "gh-target": ghTarget,
+      "coder-agent-chat-action-user": coderUserId
+    };
+    labels[sanitizedKey] = "true";
+    return labels;
   }
 }
 
