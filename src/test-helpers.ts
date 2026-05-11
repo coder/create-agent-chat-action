@@ -249,7 +249,12 @@ export function createMockOctokit() {
  */
 export function createMockResponse(
 	body: unknown,
-	options: { ok?: boolean; status?: number; statusText?: string } = {},
+	options: {
+		ok?: boolean;
+		status?: number;
+		statusText?: string;
+		headers?: Bun.HeadersInit;
+	} = {},
 ) {
 	return {
 		ok: options.ok ?? true,
@@ -257,6 +262,6 @@ export function createMockResponse(
 		statusText: options.statusText ?? "OK",
 		json: async () => body,
 		text: async () => JSON.stringify(body),
-		headers: new Map(),
+		headers: new Headers(options.headers),
 	};
 }
