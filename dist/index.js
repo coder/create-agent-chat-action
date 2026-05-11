@@ -27846,7 +27846,7 @@ var ActionOutputsSchema = exports_external.object({
 async function main() {
   try {
     const githubUserIdInput = core4.getInput("github-user-id");
-    const githubUserID = githubUserIdInput ? Number.parseInt(githubUserIdInput, 10) : undefined;
+    const githubUserID = githubUserIdInput ? Number(githubUserIdInput) : undefined;
     const inputs = ActionInputsSchema.parse({
       coderURL: core4.getInput("coder-url", { required: true }),
       coderToken: core4.getInput("coder-token", { required: true }),
