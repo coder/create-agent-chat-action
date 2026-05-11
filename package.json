@@ -9,7 +9,8 @@
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint --error-on-warnings .",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
 	},
 	"dependencies": {
 		"@actions/core": "^1.10.1",
