@@ -1,13 +1,25 @@
 import * as core from "@actions/core";
+import type { getOctokit } from "@actions/github";
 import type {
-	CreateChatRequest,
-	CoderClient,
-	CoderChat,
 	ChatId,
 	ChatStatus,
+	CoderChat,
+	CoderClient,
+	CreateChatRequest,
 } from "./coder-client";
+import {
+	buildCommentMarker,
+	buildDeploymentChatsUrl,
+	buildFailureCommentBody,
+	classifyError,
+	deriveCommentKey,
+	type FailureDetail,
+	GITHUB_URL_REGEX,
+	normalizeBaseUrl,
+	upsertComment,
+	upsertCommentByMarker,
+} from "./comment";
 import type { ActionInputs, ActionOutputs, ChatErrorKind } from "./schemas";
-import type { getOctokit } from "@actions/github";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
@@ -47,10 +59,11 @@ const TERMINAL_STATUSES: ReadonlySet<ChatStatus> = new Set<ChatStatus>([
 ]);
 
 /**
- * Thrown when the chat ends in `error` or the polling loop times out.
- * index.ts maps this onto the chat-error-* and chat-* outputs and
- * calls core.setFailed. The optional cause preserves stack traces
- * from the underlying transport error.
+ * Thrown when the chat fails or polling times out. `index.ts` routes this
+ * through `setFailureOutputs` to populate `chat-error-*` and `chat-*`
+ * outputs, then calls `core.setFailed`. `run()` also runs the failure
+ * comment helper before re-throwing the error so a single comment
+ * captures both classified API failures and wait-mode failures.
  */
 export class ActionFailureError extends Error {
 	constructor(
@@ -287,9 +300,7 @@ export class CoderAgentChatAction {
 			throw new Error("Missing GitHub URL");
 		}
 
-		const match = this.inputs.githubURL.match(
-			/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/,
-		);
+		const match = this.inputs.githubURL.match(GITHUB_URL_REGEX);
 		if (!match) {
 			throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
 		}
@@ -301,16 +312,18 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Generate chat URL
+	 * Generate chat URL.
 	 */
 	generateChatUrl(chatId: ChatId): string {
-		const baseURL = this.inputs.coderURL.split(/[?#]/)[0].replace(/\/$/, "");
-		return `${baseURL}/chats/${chatId}`;
+		return `${normalizeBaseUrl(this.inputs.coderURL)}/chats/${chatId}`;
 	}
 
-	/**
-	 * Comment on the linked GitHub issue or pull request with the chat link.
-	 */
+	// Comment on the linked GitHub issue or pull request with the chat link
+	// via the shared `upsertComment` helper. The predicate matches the
+	// success-path "Agent chat:" prefix, distinct from the failure-comment
+	// marker, so a successful re-run after a failed run currently leaves the
+	// failure comment in place rather than collapsing both onto one comment
+	// per target. Tracked in CODAGT-288.
 	async commentOnIssue(
 		chatUrl: string,
 		owner: string,
@@ -318,38 +331,14 @@ export class CoderAgentChatAction {
 		issueNumber: number,
 	): Promise<void> {
 		const body = `Agent chat: ${chatUrl}`;
-
-		try {
-			const { data: comments } = await this.octokit.rest.issues.listComments({
-				owner,
-				repo,
-				issue_number: issueNumber,
-			});
-
-			const existingComment = comments
-				.reverse()
-				.find((comment: { body?: string }) =>
-					comment.body?.startsWith("Agent chat:"),
-				);
-
-			if (existingComment) {
-				await this.octokit.rest.issues.updateComment({
-					owner,
-					repo,
-					comment_id: existingComment.id,
-					body,
-				});
-			} else {
-				await this.octokit.rest.issues.createComment({
-					owner,
-					repo,
-					issue_number: issueNumber,
-					body,
-				});
-			}
-		} catch (error) {
-			core.error(`Failed to post comment: ${error}`);
-		}
+		await upsertComment({
+			octokit: this.octokit,
+			owner,
+			repo,
+			issueNumber,
+			body,
+			predicate: (comment) => comment.body?.startsWith("Agent chat:") ?? false,
+		});
 	}
 
 	/**
@@ -582,17 +571,6 @@ export class CoderAgentChatAction {
 	 *    Resolved to a numeric id via `octokit.rest.users.getByUsername`,
 	 *    then to a Coder user.
 	 *
-	 * Resolve the Coder username to run as. Resolution order, high to low:
-	 *
-	 * 1. `coder-username` input.
-	 * 2. `github-user-id` input.
-	 * 3. `context.payload.sender.id` (issue, pull request, comment, and most
-	 *    webhook-driven events that carry the triggering user under `sender`).
-	 * 4. `context.actor` for events whose payload lacks a usable `sender.id`
-	 *    (partial sender objects, bot dispatches, custom dispatch chains).
-	 *    Resolved to a numeric id via `octokit.rest.users.getByUsername`,
-	 *    then to a Coder user.
-	 *
 	 * `schedule` events are refused before any auto-resolve source: their
 	 * `actor` is the workflow file's last editor, not a triggering identity.
 	 *
@@ -727,10 +705,87 @@ export class CoderAgentChatAction {
 		);
 	}
 
-	/**
-	 * Main action execution
-	 */
+	// Run the action. Failures funnel through `handleFailure` which posts
+	// the failure-path comment, then re-throw the (possibly enriched)
+	// ActionFailureError so the outer catch in `index.ts` populates
+	// chat-error-* outputs via setFailureOutputs and calls setFailed.
 	async run(): Promise<ActionOutputs> {
+		try {
+			return await this.runInner();
+		} catch (error) {
+			let failure: ActionFailureError;
+			try {
+				failure = await this.handleFailure(error);
+			} catch (handlerError) {
+				// If the handler itself throws (e.g. a broken GHA runtime
+				// makes core.setOutput reject), log it and re-raise the
+				// original error so the workflow surfaces the actual failure.
+				core.error(`Failure-path handler errored: ${handlerError}`);
+				throw error;
+			}
+			throw failure;
+		}
+	}
+
+	// Post the failure comment and return the (possibly re-classified)
+	// ActionFailureError. Output emission and `setFailed` are deliberately
+	// left to `index.ts` so OUTPUT_MAP stays the single source of truth and
+	// `process.exitCode` does not flip mid-test. An `ActionFailureError`
+	// thrown by the wait path is preserved verbatim; any other error is
+	// classified via comment.ts and wrapped in a fresh ActionFailureError so
+	// the failure-path output contract is uniform.
+	private async handleFailure(error: unknown): Promise<ActionFailureError> {
+		// `detail` is the comment-body shape; `failure` is the thrown shape.
+		// Classify first so spend-exceeded fields land in the comment body
+		// for both raw-Error and ActionFailureError inputs.
+		const detail: FailureDetail = classifyError(error);
+		const failure =
+			error instanceof ActionFailureError
+				? error
+				: new ActionFailureError(detail.kind, detail.message, undefined, {
+						cause: error,
+					});
+
+		if (!this.inputs.commentOnIssue) {
+			return failure;
+		}
+		let target: {
+			githubOrg: string;
+			githubRepo: string;
+			githubIssueNumber: number;
+		};
+		try {
+			target = this.parseGithubURL();
+		} catch (parseError) {
+			core.error(
+				`Cannot post failure comment: github-url is malformed (${parseError})`,
+			);
+			return failure;
+		}
+
+		// `GITHUB_WORKFLOW` is set by the runner to the workflow's `name:`
+		// field. We read it here, not in `deriveCommentKey`, so the helper
+		// stays pure and tests stay deterministic.
+		const workflow = process.env.GITHUB_WORKFLOW || undefined;
+		const marker = buildCommentMarker(
+			deriveCommentKey({ ...this.inputs, workflow }),
+		);
+		const body = buildFailureCommentBody(detail, {
+			chatsUrl: buildDeploymentChatsUrl(this.inputs.coderURL),
+			marker,
+		});
+		await upsertCommentByMarker({
+			octokit: this.octokit,
+			owner: target.githubOrg,
+			repo: target.githubRepo,
+			issueNumber: target.githubIssueNumber,
+			body,
+			marker,
+		});
+		return failure;
+	}
+
+	private async runInner(): Promise<ActionOutputs> {
 		this.warnUnwiredInputs();
 
 		const coderUsername = await this.resolveCoderUsername();

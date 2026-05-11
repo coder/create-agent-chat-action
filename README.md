@@ -211,5 +211,49 @@ other kinds are documented under [Outputs](#outputs).
 | diff-changed-files  | Number of files changed in tracked changes.                                                                                                              |
 | head-branch         | Head branch name when available.                                                                                                                         |
 | base-branch         | Base branch name when available.                                                                                                                         |
-| chat-error-kind     | Machine-readable error kind when the chat fails. Currently emits `api_error` (chat ended in error or polling failed) and `timeout` (wait=complete reached `wait-timeout-seconds`). |
+| chat-error-kind     | Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found` (reserved, not yet emitted), `api_error`, `timeout`). |
 | chat-error-message  | Human-readable error message when the chat fails.                                                                                                        |
+
+## Failure-path comment
+
+When the action fails to create a chat and `comment-on-issue` is `true`, the
+action posts a comment describing the failure on the linked issue or pull
+request, sets the `chat-error-kind` and `chat-error-message` outputs, and
+still exits non-zero (the workflow run still fails red). Re-running the same
+workflow updates the prior failure comment in place via a hidden marker so
+comments do not stack.
+
+### `chat-error-kind` values
+
+| Value             | Meaning                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| `spend_exceeded`  | The Coder deployment's chat spend limit has been reached. The comment includes spent and limit amounts.       |
+| `user_not_found`  | No Coder user matched the GitHub identity. Adjust `github-user-id` or pass `coder-username` directly.         |
+| `user_ambiguous`  | Multiple Coder users matched the same GitHub identity. Set `coder-username` to disambiguate.                  |
+| `org_not_found`   | Reserved: the resolved Coder user has no matching organization. Not yet emitted by the action; will fire once organization wiring lands. |
+| `api_error`       | Any other Coder API error. The comment includes the underlying message.                                       |
+| `timeout`         | `wait: complete` polling did not reach a terminal status before `wait-timeout-seconds` elapsed. |
+
+The `org_not_found` value is a reserved enum member and not yet emitted
+by the action; it will fire once organization wiring lands.
+
+### Comment marker
+
+Failure-path comments end with a hidden HTML marker so the action can find
+and update the prior comment on re-run without posting a new one each time:
+
+```text
+<!-- coder-agent-chat-action:<key> -->
+```
+
+The `<key>` is the value of `idempotency-key` when set, otherwise a
+stable per-target key derived from `github-url` of the form
+`<owner>/<repo>#<number>:<workflow-name>`, where `<workflow-name>` is
+the `name:` field of the workflow (from `GITHUB_WORKFLOW`). The
+workflow suffix is omitted when the env var is unset.
+
+Scoping by workflow means two workflows targeting the same issue or
+pull request maintain separate failure comments. To intentionally
+share one comment across workflows, set `idempotency-key` to
+the same value in each workflow. If two workflow files share the
+same `name:`, their markers will collide; give them distinct names.

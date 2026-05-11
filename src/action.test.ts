@@ -7,6 +7,7 @@ import {
 	POLL_INTERVAL_MS,
 } from "./action";
 import type { Octokit } from "./action";
+import { CoderAPIError } from "./coder-client";
 import { ActionOutputsSchema } from "./schemas";
 import {
 	MockCoderClient,
@@ -27,6 +28,10 @@ describe("CoderAgentChatAction", () => {
 	beforeEach(() => {
 		coderClient = new MockCoderClient();
 		octokit = createMockOctokit();
+		// CI runners set GITHUB_WORKFLOW from the workflow's `name:` field,
+		// which would suffix the marker and break the literal assertions
+		// below. Clear it so tests pin the workflow-unset baseline.
+		delete process.env.GITHUB_WORKFLOW;
 	});
 
 	describe("parseGithubURL", () => {
@@ -2405,8 +2410,23 @@ describe("CoderAgentChatAction", () => {
 
 	describe("Error Scenarios", () => {
 		test("throws error when Coder user not found", async () => {
+			// The real RealCoderClient.getCoderUserByGitHubId throws
+			// CoderAPIError with status 404; the mock must match so
+			// classifyError sees user_not_found rather than the api_error
+			// fallback.
 			coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
-				new Error("No Coder user found with GitHub user ID 12345"),
+				new CoderAPIError(
+					"No Coder user found with GitHub user ID 12345",
+					404,
+					undefined,
+					"user_not_found",
+				),
+			);
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
 			);
 
 			const inputs = createMockInputs({ githubUserID: 12345 });
@@ -2420,12 +2440,24 @@ describe("CoderAgentChatAction", () => {
 			await expect(action.run()).rejects.toThrow(
 				"No Coder user found with GitHub user ID 12345",
 			);
+			// Assert the failure went through user_not_found classification
+			// (the comment body kind line proves classifyError matched).
+			const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+				| { body: string }
+				| undefined;
+			expect(call?.body).toContain("chat-error-kind=user_not_found");
 		});
 
 		test("throws error when chat creation fails", async () => {
 			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockRejectedValue(
 				new Error("Failed to create chat"),
+			);
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
 			);
 
 			const inputs = createMockInputs({ githubUserID: 12345 });
@@ -2438,5 +2470,439 @@ describe("CoderAgentChatAction", () => {
 
 			await expect(action.run()).rejects.toThrow("Failed to create chat");
 		});
+
+		test(
+			"posts a failure comment with chat-error-kind=spend_exceeded " +
+				"and spent/limit amounts on 409 spend-exceeded shape",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				coderClient.mockCreateChat.mockRejectedValue(
+					new CoderAPIError(
+						"Coder API error: Conflict",
+						409,
+						JSON.stringify({
+							message: "Chat usage limit exceeded.",
+							spent_micros: 7_500_000,
+							limit_micros: 10_000_000,
+							resets_at: "2026-05-01T00:00:00Z",
+						}),
+					),
+				);
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.createComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.createComment>,
+				);
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await expect(action.run()).rejects.toThrow();
+
+				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+					| { body: string }
+					| undefined;
+				expect(call?.body).toContain("chat-error-kind=spend_exceeded");
+				expect(call?.body).toContain("$7.50");
+				expect(call?.body).toContain("$10.00");
+				expect(call?.body).toContain("https://coder.test/chats");
+				expect(call?.body).toContain(
+					"<!-- coder-agent-chat-action:test-org/test-repo#123 -->",
+				);
+			},
+		);
+
+		test(
+			"posts a failure comment with chat-error-kind=user_not_found and " +
+				"names the input that needs adjusting",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
+					new CoderAPIError(
+						"No Coder user found with GitHub user ID 12345",
+						404,
+						undefined,
+						"user_not_found",
+					),
+				);
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.createComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.createComment>,
+				);
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await expect(action.run()).rejects.toThrow();
+
+				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+					| { body: string }
+					| undefined;
+				expect(call?.body).toContain("chat-error-kind=user_not_found");
+				expect(call?.body).toContain("github-user-id");
+				expect(call?.body).toContain("coder-username");
+				expect(call?.body).toContain(
+					"<!-- coder-agent-chat-action:test-org/test-repo#123 -->",
+				);
+			},
+		);
+
+		test(
+			"posts a failure comment with chat-error-kind=user_ambiguous and " +
+				"suggests coder-username",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
+					new CoderAPIError(
+						"Multiple Coder users found with GitHub user ID 12345",
+						409,
+						undefined,
+						"user_ambiguous",
+					),
+				);
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.createComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.createComment>,
+				);
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await expect(action.run()).rejects.toThrow();
+
+				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+					| { body: string }
+					| undefined;
+				expect(call?.body).toContain("chat-error-kind=user_ambiguous");
+				expect(call?.body).toContain("coder-username");
+				expect(call?.body).toContain(
+					"<!-- coder-agent-chat-action:test-org/test-repo#123 -->",
+				);
+			},
+		);
+
+		test("falls back to chat-error-kind=api_error for unknown 4xx shapes", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockRejectedValue(
+				new CoderAPIError("Coder API error: Bad Request", 400, ""),
+			);
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
+			);
+
+			const inputs = createMockInputs({ githubUserID: 12345 });
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			await expect(action.run()).rejects.toThrow();
+
+			expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+			const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+				| { body: string }
+				| undefined;
+			expect(call?.body).toContain("chat-error-kind=api_error");
+			expect(call?.body).toContain(
+				"<!-- coder-agent-chat-action:test-org/test-repo#123 -->",
+			);
+		});
+
+		test("posts no failure comment when commentOnIssue=false", async () => {
+			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockRejectedValue(
+				new CoderAPIError("Coder API error: Bad Request", 400, ""),
+			);
+
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				commentOnIssue: false,
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			await expect(action.run()).rejects.toThrow();
+
+			expect(octokit.rest.issues.listComments).not.toHaveBeenCalled();
+			expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+			expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled();
+		});
+
+		test(
+			"updates existing failure comment in place when re-run with the " +
+				"same marker key",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				coderClient.mockCreateChat.mockRejectedValue(
+					new CoderAPIError("Coder API error: Bad Request", 400, ""),
+				);
+				const marker =
+					"<!-- coder-agent-chat-action:test-org/test-repo#123 -->";
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [
+						{ id: 1, body: "Some unrelated comment" },
+						{
+							id: 2,
+							body: `Earlier failure body\n\n${marker}`,
+						},
+					],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.updateComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.updateComment>,
+				);
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await expect(action.run()).rejects.toThrow();
+
+				expect(octokit.rest.issues.updateComment).toHaveBeenCalledTimes(1);
+				const updateCall = octokit.rest.issues.updateComment.mock
+					.calls[0]?.[0] as { comment_id: number; body: string } | undefined;
+				expect(updateCall?.comment_id).toBe(2);
+				expect(updateCall?.body).toContain(marker);
+				expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+			},
+		);
+
+		test(
+			"scopes the marker by GITHUB_WORKFLOW so two workflows on the " +
+				"same target do not overwrite each other",
+			async () => {
+				process.env.GITHUB_WORKFLOW = "doc-check";
+				try {
+					coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+					coderClient.mockCreateChat.mockRejectedValue(
+						new CoderAPIError("Coder API error: Bad Request", 400, ""),
+					);
+					octokit.rest.issues.listComments.mockResolvedValue({
+						data: [],
+					} as ReturnType<typeof octokit.rest.issues.listComments>);
+					octokit.rest.issues.createComment.mockResolvedValue(
+						{} as ReturnType<typeof octokit.rest.issues.createComment>,
+					);
+
+					const inputs = createMockInputs({ githubUserID: 12345 });
+					const action = new CoderAgentChatAction(
+						coderClient,
+						octokit as unknown as Octokit,
+						inputs,
+						createMockContext(),
+					);
+
+					await expect(action.run()).rejects.toThrow();
+
+					expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+					const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+						| { body: string }
+						| undefined;
+					expect(call?.body).toContain(
+						"<!-- coder-agent-chat-action:test-org/test-repo#123:doc-check -->",
+					);
+				} finally {
+					delete process.env.GITHUB_WORKFLOW;
+				}
+			},
+		);
+
+		test(
+			"posts a failure comment when github-url is a pull request URL " +
+				"(end-to-end PR support)",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				coderClient.mockCreateChat.mockRejectedValue(
+					new CoderAPIError("Coder API error: Bad Request", 400, ""),
+				);
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.createComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.createComment>,
+				);
+
+				const inputs = createMockInputs({
+					githubUserID: 12345,
+					githubURL: "https://github.com/test-org/test-repo/pull/77",
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				await expect(action.run()).rejects.toThrow();
+
+				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
+					| { issue_number: number; body: string }
+					| undefined;
+				expect(call?.issue_number).toBe(77);
+				expect(call?.body).toContain(
+					"<!-- coder-agent-chat-action:test-org/test-repo#77 -->",
+				);
+			},
+		);
+
+		// chat-error-* outputs are the machine-readable contract for
+		// downstream workflow steps. The classified error must travel from
+		// run() through index.ts via ActionFailureError so the OUTPUT_MAP
+		// table is the single source of truth for output names.
+		test(
+			"throws ActionFailureError carrying chat-error-* outputs on " +
+				"the failure path",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				coderClient.mockCreateChat.mockRejectedValue(
+					new CoderAPIError("Coder API error: Bad Request", 400, ""),
+				);
+				octokit.rest.issues.listComments.mockResolvedValue({
+					data: [],
+				} as ReturnType<typeof octokit.rest.issues.listComments>);
+				octokit.rest.issues.createComment.mockResolvedValue(
+					{} as ReturnType<typeof octokit.rest.issues.createComment>,
+				);
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				let caught: unknown;
+				try {
+					await action.run();
+				} catch (error) {
+					caught = error;
+				}
+				expect(caught).toBeInstanceOf(ActionFailureError);
+				const failure = caught as ActionFailureError;
+				expect(failure.kind).toBe("api_error");
+				expect(failure.message).toBe("Coder API error: Bad Request");
+				expect(failure.cause).toBeInstanceOf(CoderAPIError);
+			},
+		);
+
+		// Posting the failure comment must never mask the original API
+		// error. If the GitHub API rejects, the classified error must still
+		// propagate (not the GitHub error) so the workflow surfaces the
+		// actual failure.
+		test(
+			"propagates the classified error when GitHub comment posting " +
+				"itself fails",
+			async () => {
+				coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+				coderClient.mockCreateChat.mockRejectedValue(
+					new CoderAPIError("Coder API error: Bad Request", 400, ""),
+				);
+				// paginate (which findCommentByPredicate uses) rejects.
+				octokit.paginate.mockRejectedValue(new Error("boom"));
+
+				const inputs = createMockInputs({ githubUserID: 12345 });
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				let caught: unknown;
+				try {
+					await action.run();
+				} catch (error) {
+					caught = error;
+				}
+				expect(caught).toBeInstanceOf(ActionFailureError);
+				expect((caught as ActionFailureError).kind).toBe("api_error");
+			},
+		);
+
+		// `handleFailure`'s defensive catch around `parseGithubURL` keeps a
+		// malformed github-url from masking the original API error. The
+		// schema only validates URL syntax, so a URL like
+		// `https://github.com/foo` passes the schema but the regex does not
+		// match.
+		test(
+			"degrades gracefully when github-url passes schema but fails " +
+				"the issue/PR regex",
+			async () => {
+				// Failing the user lookup means parseGithubURL never runs in
+				// runInner; only handleFailure's defensive call hits the bad URL.
+				coderClient.mockGetCoderUserByGithubID.mockRejectedValue(
+					new CoderAPIError(
+						"No Coder user found with GitHub user ID 12345",
+						404,
+						undefined,
+						"user_not_found",
+					),
+				);
+
+				const inputs = createMockInputs({
+					githubUserID: 12345,
+					// Passes schema (.url()) but does not match the issue/PR regex.
+					githubURL: "https://github.com/owner-only",
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext(),
+				);
+
+				let caught: unknown;
+				try {
+					await action.run();
+				} catch (error) {
+					caught = error;
+				}
+				// The classified error survived the parseGithubURL throw inside
+				// handleFailure: chat-error-kind is user_not_found, not the
+				// parser's "Invalid GitHub URL" string.
+				expect(caught).toBeInstanceOf(ActionFailureError);
+				expect((caught as ActionFailureError).kind).toBe("user_not_found");
+				expect((caught as ActionFailureError).message).toContain(
+					"No Coder user found",
+				);
+				// No comment posted because the parser rejected the URL.
+				expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+			},
+		);
 	});
 });

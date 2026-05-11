@@ -1,0 +1,403 @@
+import * as core from "@actions/core";
+import type { getOctokit } from "@actions/github";
+import { type ChatErrorKind, CoderAPIError } from "./coder-client";
+import type { ActionInputs } from "./schemas";
+
+type Octokit = ReturnType<typeof getOctokit>;
+
+// Shared regex for GitHub issue and PR URLs. Used by `deriveCommentKey` and
+// `parseGithubURL` so adding another path (e.g. `/discussions/`) is one edit.
+export const GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
+
+// Discriminated union so spend-exceeded fields are only representable on the
+// spend-exceeded variant; the body builder reads them directly without a
+// `?? 0` fallback.
+export type FailureDetail =
+	| {
+			kind: "spend_exceeded";
+			message: string;
+			spentMicros: number;
+			limitMicros: number;
+			resetsAt: string;
+	  }
+	| {
+			kind:
+				| "user_not_found"
+				| "user_ambiguous"
+				| "org_not_found"
+				| "api_error"
+				| "timeout";
+			message: string;
+	  };
+
+// chat-error-kind enum surfaced as the action's `chat-error-kind` output.
+// Re-exported from `coder-client.ts`; this re-export keeps the name local
+// to `comment.ts` callers and `index.ts` for backward source compatibility.
+export type { ChatErrorKind } from "./coder-client";
+
+const COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
+const COMMENT_MARKER_SUFFIX = " -->";
+
+// Build the per-comment marker. See `deriveCommentKey` for how the `key`
+// is derived from `idempotency-key`, `github-url`, and `GITHUB_WORKFLOW`.
+export function buildCommentMarker(key: string): string {
+	return `${COMMENT_MARKER_PREFIX}${key}${COMMENT_MARKER_SUFFIX}`;
+}
+
+// Derive the marker key. Same value is used by the failure-comment helper
+// and (when wired) by idempotency lookup so they agree per target.
+//
+// Without a workflow suffix, two workflows targeting the same issue/PR
+// would collide on the same key and overwrite each other's comment.
+// Callers pass `workflow` (typically `process.env.GITHUB_WORKFLOW`) so
+// each workflow gets its own marker. `idempotencyKey` still wins
+// when set so users can intentionally collapse comments across
+// workflows.
+export function deriveCommentKey(
+	inputs: Pick<ActionInputs, "githubURL"> & {
+		idempotencyKey?: string;
+		workflow?: string;
+	},
+): string {
+	if (inputs.idempotencyKey) {
+		return inputs.idempotencyKey;
+	}
+	const match = inputs.githubURL.match(GITHUB_URL_REGEX);
+	let base: string;
+	if (!match) {
+		// The action validates githubURL upstream; if we get here the input is
+		// malformed and the failure-path comment cannot find a stable target.
+		// Fall back to the URL itself so re-runs at least collapse on identical
+		// URLs, even if the marker is uglier.
+		base = inputs.githubURL;
+	} else {
+		base = `${match[1]}/${match[2]}#${match[3]}`;
+	}
+	if (inputs.workflow) {
+		return `${base}:${inputs.workflow}`;
+	}
+	return base;
+}
+
+// Map a thrown error to a FailureDetail.
+//
+// Classification keys on explicit signals so a message reword cannot demote
+// a kind to `api_error`:
+//   - `kind` on CoderAPIError (set by the client) marks user-lookup
+//     failures.
+//   - 409 with the spend-exceeded body shape (`spent_micros`, `limit_micros`,
+//     `resets_at`) becomes `spend_exceeded`.
+//   - Anything else becomes `api_error`. The message is the body's `message`
+//     field when present (e.g. `workspace_id: must be a valid UUID`) and
+//     falls back to `err.message` only when the body is empty.
+export function classifyError(err: unknown): FailureDetail {
+	if (err instanceof CoderAPIError) {
+		// Check the explicit error-code discriminator first so a client error
+		// can never be misclassified by an unrelated 409 body shape.
+		const code = mapErrorCodeToKind(err.kind);
+		if (code) {
+			return { kind: code, message: err.message };
+		}
+		const spend = parseSpendExceededBody(err.response);
+		if (err.statusCode === 409 && spend) {
+			return {
+				kind: "spend_exceeded",
+				message: spend.message,
+				spentMicros: spend.spentMicros,
+				limitMicros: spend.limitMicros,
+				resetsAt: spend.resetsAt,
+			};
+		}
+		return {
+			kind: "api_error",
+			message: parseAPIErrorMessage(err.response) ?? err.message,
+		};
+	}
+	if (err instanceof Error) {
+		return { kind: "api_error", message: err.message };
+	}
+	return { kind: "api_error", message: String(err) };
+}
+
+function mapErrorCodeToKind(
+	code: ChatErrorKind | undefined,
+): "user_not_found" | "user_ambiguous" | undefined {
+	switch (code) {
+		case "user_not_found":
+		case "user_ambiguous":
+			return code;
+		default:
+			return undefined;
+	}
+}
+
+interface SpendExceededFields {
+	message: string;
+	spentMicros: number;
+	limitMicros: number;
+	resetsAt: string;
+}
+
+// Parse a 409 body for the spend-exceeded shape. We guard on the numeric
+// fields the comment renders so a malformed input cannot produce a `$0.00`
+// body.
+function parseSpendExceededBody(response: unknown): SpendExceededFields | null {
+	const obj = parseJSONObject(response);
+	if (!obj) {
+		return null;
+	}
+	if (
+		typeof obj.spent_micros === "number" &&
+		typeof obj.limit_micros === "number"
+	) {
+		return {
+			message:
+				typeof obj.message === "string" && obj.message
+					? obj.message
+					: "Chat usage limit exceeded.",
+			spentMicros: obj.spent_micros,
+			limitMicros: obj.limit_micros,
+			resetsAt: typeof obj.resets_at === "string" ? obj.resets_at : "",
+		};
+	}
+	return null;
+}
+
+// Pull the diagnostic `message` field from a Coder API error body so the
+// comment can show e.g. `workspace_id: must be a valid UUID` instead of the
+// generic HTTP status text.
+function parseAPIErrorMessage(response: unknown): string | undefined {
+	const obj = parseJSONObject(response);
+	if (!obj) {
+		return undefined;
+	}
+	if (typeof obj.message === "string" && obj.message) {
+		return obj.message;
+	}
+	return undefined;
+}
+
+function parseJSONObject(response: unknown): Record<string, unknown> | null {
+	let parsed: unknown = response;
+	if (typeof response === "string" && response.length > 0) {
+		try {
+			parsed = JSON.parse(response);
+		} catch {
+			return null;
+		}
+	}
+	if (!parsed || typeof parsed !== "object") {
+		return null;
+	}
+	return parsed as Record<string, unknown>;
+}
+
+function formatMicrosAsDollars(micros: number): string {
+	const dollars = micros / 1_000_000;
+	return `$${dollars.toFixed(2)}`;
+}
+
+export interface FailureCommentContext {
+	chatsUrl: string;
+	marker: string;
+}
+
+// Build the failure-comment body. Each variant ends with `ctx.marker` so
+// subsequent runs can find and update the prior comment via
+// `upsertCommentByMarker`. The exhaustive `default` makes adding a new
+// ChatErrorKind a type error here rather than a silent blank body.
+export function buildFailureCommentBody(
+	detail: FailureDetail,
+	ctx: FailureCommentContext,
+): string {
+	const lines: string[] = ["**Coder Agent Chat: failed to start**", ""];
+	switch (detail.kind) {
+		case "spend_exceeded":
+			lines.push(
+				"The Coder deployment's chat spend limit was reached, so this " +
+					"chat could not be created.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Spent: ${formatMicrosAsDollars(detail.spentMicros)}`,
+				`- Limit: ${formatMicrosAsDollars(detail.limitMicros)}`,
+			);
+			if (detail.resetsAt) {
+				lines.push(`- Resets at: ${detail.resetsAt}`);
+			}
+			lines.push("", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+			break;
+		case "user_not_found":
+			lines.push(
+				"No Coder user could be resolved for this run. Adjust either " +
+					"the `github-user-id` input (the GitHub identity is not linked " +
+					"to a Coder user) or pass `coder-username` directly.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Detail: ${detail.message}`,
+				"",
+				`View chats in the Coder deployment: ${ctx.chatsUrl}`,
+			);
+			break;
+		case "user_ambiguous":
+			lines.push(
+				"Multiple Coder users matched the GitHub identity. Set the " +
+					"`coder-username` input to the specific account this workflow " +
+					"should run as.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Detail: ${detail.message}`,
+				"",
+				`View chats in the Coder deployment: ${ctx.chatsUrl}`,
+			);
+			break;
+		case "org_not_found":
+			lines.push(
+				"The resolved Coder user has no matching organization. Set the " +
+					"`coder-organization` input or grant the user a membership.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Detail: ${detail.message}`,
+				"",
+				`View chats in the Coder deployment: ${ctx.chatsUrl}`,
+			);
+			break;
+		case "api_error":
+			lines.push(
+				"An unexpected error occurred while running the action.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Detail: ${detail.message}`,
+				"",
+				`View chats in the Coder deployment: ${ctx.chatsUrl}`,
+			);
+			break;
+		case "timeout":
+			lines.push(
+				"`wait: complete` polling did not reach a terminal status within " +
+					"`wait-timeout-seconds`.",
+				"",
+				`- chat-error-kind=${detail.kind}`,
+				`- Detail: ${detail.message}`,
+				"",
+				`View chats in the Coder deployment: ${ctx.chatsUrl}`,
+			);
+			break;
+		default: {
+			const _exhaustive: never = detail;
+			throw new Error(
+				`buildFailureCommentBody: unhandled ChatErrorKind ${JSON.stringify(_exhaustive)}`,
+			);
+		}
+	}
+	lines.push("", ctx.marker);
+	return lines.join("\n");
+}
+
+// Walk every comment via `octokit.paginate` and return the most recent one
+// matching `predicate`. Full pagination is required because the marker
+// comment may sit past the default 30-per-page window on busy issues. The
+// newest-first scan means re-runs collide with the most recent prior match.
+export async function findCommentByPredicate(args: {
+	octokit: Octokit;
+	owner: string;
+	repo: string;
+	issueNumber: number;
+	predicate: (comment: { body?: string }) => boolean;
+}): Promise<{ id: number; body?: string } | undefined> {
+	const all = await args.octokit.paginate(
+		args.octokit.rest.issues.listComments,
+		{
+			owner: args.owner,
+			repo: args.repo,
+			issue_number: args.issueNumber,
+			per_page: 100,
+		},
+	);
+	for (let i = all.length - 1; i >= 0; i--) {
+		const comment = all[i];
+		if (args.predicate(comment)) {
+			return comment;
+		}
+	}
+	return undefined;
+}
+
+// Find an existing comment matching `predicate` and update it; create a new
+// comment otherwise. Errors are logged, not thrown, so the comment helper
+// cannot itself fail the action a second time.
+//
+// Concurrency: GitHub's REST API has no atomic find-or-create for comments,
+// so two parallel runs can each miss the other and both create one. The next
+// single re-run converges via the newest-first scan; the earlier comment is
+// not cleaned up.
+export async function upsertComment(args: {
+	octokit: Octokit;
+	owner: string;
+	repo: string;
+	issueNumber: number;
+	body: string;
+	predicate: (comment: { body?: string }) => boolean;
+	logLabel?: string;
+}): Promise<void> {
+	const label = args.logLabel ?? "comment";
+	try {
+		const existing = await findCommentByPredicate({
+			octokit: args.octokit,
+			owner: args.owner,
+			repo: args.repo,
+			issueNumber: args.issueNumber,
+			predicate: args.predicate,
+		});
+		if (existing) {
+			await args.octokit.rest.issues.updateComment({
+				owner: args.owner,
+				repo: args.repo,
+				comment_id: existing.id,
+				body: args.body,
+			});
+			return;
+		}
+		await args.octokit.rest.issues.createComment({
+			owner: args.owner,
+			repo: args.repo,
+			issue_number: args.issueNumber,
+			body: args.body,
+		});
+	} catch (error) {
+		core.error(`Failed to post ${label}: ${error}`);
+	}
+}
+
+// Marker-keyed specialization of `upsertComment`. Callers that only need
+// marker-based matching can skip assembling the predicate themselves.
+export async function upsertCommentByMarker(args: {
+	octokit: Octokit;
+	owner: string;
+	repo: string;
+	issueNumber: number;
+	body: string;
+	marker: string;
+}): Promise<void> {
+	await upsertComment({
+		octokit: args.octokit,
+		owner: args.owner,
+		repo: args.repo,
+		issueNumber: args.issueNumber,
+		body: args.body,
+		predicate: (comment) => comment.body?.includes(args.marker) ?? false,
+		logLabel: "failure comment",
+	});
+}
+
+// Strip query/fragment and a trailing slash from a Coder deployment URL so
+// it can be safely concatenated with a path. Shared by `generateChatUrl`
+// and `buildDeploymentChatsUrl`.
+export function normalizeBaseUrl(coderURL: string): string {
+	return coderURL.split(/[?#]/)[0].replace(/\/$/, "");
+}
+
+// Deployment-level chats URL for the "view chats" link in the failure body.
+// We use the deployment list because a creation failure has no chat ID.
+export function buildDeploymentChatsUrl(coderURL: string): string {
+	return `${normalizeBaseUrl(coderURL)}/chats`;
+}

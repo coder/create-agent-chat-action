@@ -22726,378 +22726,14 @@ var require_github = __commonJS((exports2) => {
 });
 
 // src/index.ts
-var core3 = __toESM(require_core(), 1);
+var core4 = __toESM(require_core(), 1);
 var github = __toESM(require_github(), 1);
 
 // src/action.ts
+var core2 = __toESM(require_core(), 1);
+
+// src/comment.ts
 var core = __toESM(require_core(), 1);
-var defaultClock = {
-  now: () => Date.now(),
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-};
-var POLL_INTERVAL_MS = 5000;
-var MAX_CONSECUTIVE_POLL_FAILURES = 3;
-var TERMINAL_STATUSES = new Set([
-  "waiting",
-  "completed",
-  "error"
-]);
-
-class ActionFailureError extends Error {
-  kind;
-  chat;
-  constructor(kind, message, chat, options) {
-    super(message, options?.cause ? { cause: options.cause } : undefined);
-    this.kind = kind;
-    this.chat = chat;
-    this.name = "ActionFailureError";
-    this.chatId = options?.chatId ?? chat?.id;
-  }
-  chatId;
-  coderUsername;
-  chatUrl;
-}
-function describeError(err) {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === "string") {
-    return err;
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}
-var TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
-  "OWNER",
-  "MEMBER",
-  "COLLABORATOR"
-]);
-function classifyAutoResolveTrust(context) {
-  const pr = context.payload.pull_request;
-  if (pr) {
-    const headRepo = pr.head?.repo;
-    const baseRepo = pr.base?.repo;
-    const headFullName = headRepo?.full_name;
-    const baseFullName = baseRepo?.full_name;
-    const isFork = headRepo === null || headRepo?.fork === true || typeof headFullName === "string" && typeof baseFullName === "string" && headFullName !== baseFullName;
-    if (isFork) {
-      return {
-        kind: "untrusted",
-        reason: "the pull request is from a fork; auto-resolve refuses to bind " + "the workflow's Coder identity to a fork-PR author"
-      };
-    }
-  }
-  const associations = [
-    { source: "comment", value: context.payload.comment?.author_association },
-    { source: "review", value: context.payload.review?.author_association }
-  ];
-  for (const { source, value } of associations) {
-    if (typeof value !== "string" || value.length === 0) {
-      continue;
-    }
-    if (TRUSTED_AUTHOR_ASSOCIATIONS.has(value)) {
-      return {
-        kind: "trusted",
-        reason: `${source}.author_association is ${value}`
-      };
-    }
-    return {
-      kind: "untrusted",
-      reason: `${source}.author_association is ${value}, which lacks ` + "repository write access"
-    };
-  }
-  return { kind: "no-signal" };
-}
-
-class CoderAgentChatAction {
-  coder;
-  octokit;
-  inputs;
-  context;
-  clock;
-  constructor(coder, octokit, inputs, context, clock = defaultClock) {
-    this.coder = coder;
-    this.octokit = octokit;
-    this.inputs = inputs;
-    this.context = context;
-    this.clock = clock;
-  }
-  parseGithubURL() {
-    if (!this.inputs.githubURL) {
-      throw new Error("Missing GitHub URL");
-    }
-    const match = this.inputs.githubURL.match(/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/);
-    if (!match) {
-      throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
-    }
-    return {
-      githubOrg: match[1],
-      githubRepo: match[2],
-      githubIssueNumber: parseInt(match[3], 10)
-    };
-  }
-  generateChatUrl(chatId) {
-    const baseURL = this.inputs.coderURL.split(/[?#]/)[0].replace(/\/$/, "");
-    return `${baseURL}/chats/${chatId}`;
-  }
-  async commentOnIssue(chatUrl, owner, repo, issueNumber) {
-    const body = `Agent chat: ${chatUrl}`;
-    try {
-      const { data: comments } = await this.octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: issueNumber
-      });
-      const existingComment = comments.reverse().find((comment) => comment.body?.startsWith("Agent chat:"));
-      if (existingComment) {
-        await this.octokit.rest.issues.updateComment({
-          owner,
-          repo,
-          comment_id: existingComment.id,
-          body
-        });
-      } else {
-        await this.octokit.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: issueNumber,
-          body
-        });
-      }
-    } catch (error2) {
-      core.error(`Failed to post comment: ${error2}`);
-    }
-  }
-  warnUnwiredInputs() {
-    if (this.inputs.idempotencyKey !== undefined) {
-      core.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
-    }
-    if (this.inputs.coderOrganization !== undefined) {
-      core.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
-    }
-  }
-  buildOutputs(coderUsername, chat, chatCreated) {
-    const diff = chat.diff_status;
-    const hasPR = diff?.pr_number != null;
-    return {
-      coderUsername,
-      chatId: chat.id,
-      chatUrl: this.generateChatUrl(chat.id),
-      chatCreated,
-      chatStatus: chat.status,
-      chatTitle: chat.title,
-      workspaceId: chat.workspace_id ?? undefined,
-      pullRequestUrl: diff?.url ?? undefined,
-      pullRequestState: diff?.pull_request_state ?? undefined,
-      pullRequestTitle: diff?.pull_request_title ?? undefined,
-      pullRequestNumber: diff?.pr_number ?? undefined,
-      additions: hasPR ? diff?.additions : undefined,
-      deletions: hasPR ? diff?.deletions : undefined,
-      changedFiles: hasPR ? diff?.changed_files : undefined,
-      headBranch: diff?.head_branch ?? undefined,
-      baseBranch: diff?.base_branch ?? undefined,
-      chatErrorMessage: chat.last_error ?? undefined
-    };
-  }
-  async waitForTerminal(chatId, options = {}) {
-    const timeoutMs = this.inputs.waitTimeoutSeconds * 1000;
-    const startedAt = this.clock.now();
-    let latest;
-    let sawNonTerminal = !options.requireNonTerminalFirst;
-    let firstTerminal;
-    let consecutiveFailures = 0;
-    while (true) {
-      try {
-        latest = await this.coder.getChat(chatId);
-        consecutiveFailures = 0;
-      } catch (err) {
-        consecutiveFailures++;
-        const message = err instanceof Error ? err.message : String(err);
-        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
-          throw new ActionFailureError("api_error", `Polling chat ${chatId} failed after ${consecutiveFailures} attempts: ${message}`, undefined, { cause: err, chatId });
-        }
-        core.warning(`Poll ${consecutiveFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} for chat ${chatId} failed: ${message}`);
-      }
-      if (latest && consecutiveFailures === 0) {
-        core.info(`Chat status: ${latest.status}`);
-        const isTerminal = TERMINAL_STATUSES.has(latest.status);
-        if (isTerminal) {
-          if (sawNonTerminal) {
-            return this.throwOnChatError(latest);
-          }
-          if (firstTerminal === undefined) {
-            firstTerminal = latest.status;
-          } else if (latest.status !== firstTerminal) {
-            return this.throwOnChatError(latest);
-          }
-        } else {
-          sawNonTerminal = true;
-        }
-      }
-      const elapsedMs = this.clock.now() - startedAt;
-      if (elapsedMs >= timeoutMs) {
-        throw new ActionFailureError("timeout", this.timeoutMessage(chatId, latest, sawNonTerminal), latest, { chatId });
-      }
-      await this.clock.sleep(POLL_INTERVAL_MS);
-    }
-  }
-  timeoutMessage(chatId, latest, sawNonTerminal) {
-    if (!sawNonTerminal && latest) {
-      return `Chat ${chatId} remained in terminal status \`${latest.status}\` ` + `for the entire ${this.inputs.waitTimeoutSeconds}s wait window; ` + "the agent may not have processed the follow-up message.";
-    }
-    return `Timed out after ${this.inputs.waitTimeoutSeconds}s waiting for chat ${chatId} to reach a terminal status`;
-  }
-  throwOnChatError(chat) {
-    if (chat.status === "error") {
-      const message = chat.last_error || "Chat ended in error state";
-      throw new ActionFailureError("api_error", message, chat);
-    }
-    return chat;
-  }
-  async pollWithContext(chatId, context, options) {
-    try {
-      return await this.waitForTerminal(chatId, options);
-    } catch (err) {
-      if (err instanceof ActionFailureError) {
-        if (!err.chat && context.atCreation) {
-          const rewrapped = new ActionFailureError(err.kind, err.message, context.atCreation, { cause: err.cause, chatId });
-          rewrapped.coderUsername = context.coderUsername;
-          rewrapped.chatUrl = context.chatUrl;
-          throw rewrapped;
-        }
-        err.coderUsername = context.coderUsername;
-        err.chatUrl = context.chatUrl;
-      }
-      throw err;
-    }
-  }
-  async resolveCoderUsername() {
-    if (this.inputs.coderUsername) {
-      core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
-      return this.inputs.coderUsername;
-    }
-    if (this.inputs.githubUserID !== undefined) {
-      core.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
-      const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
-      return coderUser.username;
-    }
-    if (this.context.eventName === "schedule") {
-      throw new Error("Cannot auto-resolve a GitHub identity for `schedule` events: " + "`github.context.actor` for cron-triggered runs is the workflow " + "file's last editor, not the triggering user. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
-    }
-    const trust = classifyAutoResolveTrust(this.context);
-    if (trust.kind === "untrusted") {
-      throw new Error("Refusing to auto-resolve a GitHub identity: " + `${trust.reason}. ` + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user " + "the chat should run as.");
-    }
-    if (trust.kind === "trusted") {
-      core.info(`Auto-resolve trust check passed: ${trust.reason}`);
-    }
-    const senderId = this.context.payload?.sender?.id;
-    if (typeof senderId === "number" && Number.isInteger(senderId) && senderId > 0) {
-      core.info(`Auto-resolving Coder user from github.context.payload.sender.id: ${senderId}`);
-      try {
-        const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
-        return coderUser.username;
-      } catch (err) {
-        throw new Error(`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
-      }
-    }
-    const actor = this.context.actor;
-    if (actor) {
-      core.info(`Auto-resolving Coder user from github.context.actor: ${actor}`);
-      let actorId;
-      try {
-        const { data } = await this.octokit.rest.users.getByUsername({
-          username: actor
-        });
-        actorId = data.id;
-      } catch (err) {
-        throw new Error(`Failed to resolve GitHub user id for github.context.actor (${actor}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
-      }
-      try {
-        const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
-        return coderUser.username;
-      } catch (err) {
-        throw new Error(`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
-      }
-    }
-    throw new Error("Could not auto-resolve a GitHub identity from the workflow context. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
-  }
-  async run() {
-    this.warnUnwiredInputs();
-    const coderUsername = await this.resolveCoderUsername();
-    const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
-    core.info(`GitHub owner: ${githubOrg}`);
-    core.info(`GitHub repo: ${githubRepo}`);
-    core.info(`GitHub item number: ${githubIssueNumber}`);
-    core.info(`Coder username: ${coderUsername}`);
-    if (this.inputs.existingChatId) {
-      core.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
-      const chatId = this.inputs.existingChatId;
-      await this.coder.createChatMessage(chatId, {
-        content: [{ type: "text", text: this.inputs.chatPrompt }],
-        model_config_id: this.inputs.modelConfigId
-      });
-      core.info("Message sent successfully");
-      const chatUrl2 = this.generateChatUrl(chatId);
-      let chat;
-      if (this.inputs.wait === "complete") {
-        core.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
-        chat = await this.pollWithContext(chatId, { coderUsername, chatUrl: chatUrl2 }, { requireNonTerminalFirst: true });
-        core.info(`Chat reached terminal status: ${chat.status}`);
-      } else {
-        try {
-          chat = await this.coder.getChat(chatId);
-          core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
-        } catch (error2) {
-          core.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error2}`);
-        }
-      }
-      if (this.inputs.commentOnIssue) {
-        core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
-        await this.commentOnIssue(chatUrl2, githubOrg, githubRepo, githubIssueNumber);
-      }
-      if (chat) {
-        return this.buildOutputs(coderUsername, chat, false);
-      }
-      return {
-        coderUsername,
-        chatId,
-        chatUrl: chatUrl2,
-        chatCreated: false
-      };
-    }
-    core.info("Creating new agent chat...");
-    const req = {
-      content: [{ type: "text", text: this.inputs.chatPrompt }],
-      workspace_id: this.inputs.workspaceId,
-      model_config_id: this.inputs.modelConfigId
-    };
-    const createdChat = await this.coder.createChat(req);
-    core.info(`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
-    const chatUrl = this.generateChatUrl(createdChat.id);
-    core.info(`Chat URL: ${chatUrl}`);
-    let finalChat = createdChat;
-    if (this.inputs.wait === "complete") {
-      core.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
-      finalChat = await this.pollWithContext(createdChat.id, {
-        coderUsername,
-        chatUrl,
-        atCreation: createdChat
-      });
-      core.info(`Chat reached terminal status: ${finalChat.status}`);
-    }
-    if (this.inputs.commentOnIssue) {
-      core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
-      await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
-    } else {
-      core.info("Skipping comment on issue (commentOnIssue is false)");
-    }
-    return this.buildOutputs(coderUsername, finalChat, true);
-  }
-}
 
 // node_modules/zod/v3/external.js
 var exports_external = {};
@@ -23393,8 +23029,8 @@ class ZodError extends Error {
       return issue.message;
     };
     const fieldErrors = { _errors: [] };
-    const processError = (error2) => {
-      for (const issue of error2.issues) {
+    const processError = (error) => {
+      for (const issue of error.issues) {
         if (issue.code === "invalid_union") {
           issue.unionErrors.map(processError);
         } else if (issue.code === "invalid_return_type") {
@@ -23457,8 +23093,8 @@ class ZodError extends Error {
   }
 }
 ZodError.create = (issues) => {
-  const error2 = new ZodError(issues);
-  return error2;
+  const error = new ZodError(issues);
+  return error;
 };
 
 // node_modules/zod/v3/locales/en.js
@@ -23717,8 +23353,8 @@ var handleResult = (ctx, result) => {
       get error() {
         if (this._error)
           return this._error;
-        const error2 = new ZodError(ctx.common.issues);
-        this._error = error2;
+        const error = new ZodError(ctx.common.issues);
+        this._error = error;
         return this._error;
       }
     };
@@ -26300,25 +25936,25 @@ class ZodFunction extends ZodType {
       });
       return INVALID;
     }
-    function makeArgsIssue(args, error2) {
+    function makeArgsIssue(args, error) {
       return makeIssue({
         data: args,
         path: ctx.path,
         errorMaps: [ctx.common.contextualErrorMap, ctx.schemaErrorMap, getErrorMap(), en_default].filter((x) => !!x),
         issueData: {
           code: ZodIssueCode.invalid_arguments,
-          argumentsError: error2
+          argumentsError: error
         }
       });
     }
-    function makeReturnsIssue(returns, error2) {
+    function makeReturnsIssue(returns, error) {
       return makeIssue({
         data: returns,
         path: ctx.path,
         errorMaps: [ctx.common.contextualErrorMap, ctx.schemaErrorMap, getErrorMap(), en_default].filter((x) => !!x),
         issueData: {
           code: ZodIssueCode.invalid_return_type,
-          returnTypeError: error2
+          returnTypeError: error
         }
       });
     }
@@ -26327,15 +25963,15 @@ class ZodFunction extends ZodType {
     if (this._def.returns instanceof ZodPromise) {
       const me = this;
       return OK(async function(...args) {
-        const error2 = new ZodError([]);
+        const error = new ZodError([]);
         const parsedArgs = await me._def.args.parseAsync(args, params).catch((e) => {
-          error2.addIssue(makeArgsIssue(args, e));
-          throw error2;
+          error.addIssue(makeArgsIssue(args, e));
+          throw error;
         });
         const result = await Reflect.apply(fn, this, parsedArgs);
         const parsedReturns = await me._def.returns._def.type.parseAsync(result, params).catch((e) => {
-          error2.addIssue(makeReturnsIssue(result, e));
-          throw error2;
+          error.addIssue(makeReturnsIssue(result, e));
+          throw error;
         });
         return parsedReturns;
       });
@@ -27241,8 +26877,601 @@ class CoderAPIError extends Error {
   }
 }
 
+// src/comment.ts
+var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
+var COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
+var COMMENT_MARKER_SUFFIX = " -->";
+function buildCommentMarker(key) {
+  return `${COMMENT_MARKER_PREFIX}${key}${COMMENT_MARKER_SUFFIX}`;
+}
+function deriveCommentKey(inputs) {
+  if (inputs.idempotencyKey) {
+    return inputs.idempotencyKey;
+  }
+  const match = inputs.githubURL.match(GITHUB_URL_REGEX);
+  let base;
+  if (!match) {
+    base = inputs.githubURL;
+  } else {
+    base = `${match[1]}/${match[2]}#${match[3]}`;
+  }
+  if (inputs.workflow) {
+    return `${base}:${inputs.workflow}`;
+  }
+  return base;
+}
+function classifyError(err) {
+  if (err instanceof CoderAPIError) {
+    const code = mapErrorCodeToKind(err.kind);
+    if (code) {
+      return { kind: code, message: err.message };
+    }
+    const spend = parseSpendExceededBody(err.response);
+    if (err.statusCode === 409 && spend) {
+      return {
+        kind: "spend_exceeded",
+        message: spend.message,
+        spentMicros: spend.spentMicros,
+        limitMicros: spend.limitMicros,
+        resetsAt: spend.resetsAt
+      };
+    }
+    return {
+      kind: "api_error",
+      message: parseAPIErrorMessage(err.response) ?? err.message
+    };
+  }
+  if (err instanceof Error) {
+    return { kind: "api_error", message: err.message };
+  }
+  return { kind: "api_error", message: String(err) };
+}
+function mapErrorCodeToKind(code) {
+  switch (code) {
+    case "user_not_found":
+    case "user_ambiguous":
+      return code;
+    default:
+      return;
+  }
+}
+function parseSpendExceededBody(response) {
+  const obj = parseJSONObject(response);
+  if (!obj) {
+    return null;
+  }
+  if (typeof obj.spent_micros === "number" && typeof obj.limit_micros === "number") {
+    return {
+      message: typeof obj.message === "string" && obj.message ? obj.message : "Chat usage limit exceeded.",
+      spentMicros: obj.spent_micros,
+      limitMicros: obj.limit_micros,
+      resetsAt: typeof obj.resets_at === "string" ? obj.resets_at : ""
+    };
+  }
+  return null;
+}
+function parseAPIErrorMessage(response) {
+  const obj = parseJSONObject(response);
+  if (!obj) {
+    return;
+  }
+  if (typeof obj.message === "string" && obj.message) {
+    return obj.message;
+  }
+  return;
+}
+function parseJSONObject(response) {
+  let parsed = response;
+  if (typeof response === "string" && response.length > 0) {
+    try {
+      parsed = JSON.parse(response);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  return parsed;
+}
+function formatMicrosAsDollars(micros) {
+  const dollars = micros / 1e6;
+  return `$${dollars.toFixed(2)}`;
+}
+function buildFailureCommentBody(detail, ctx) {
+  const lines = ["**Coder Agent Chat: failed to start**", ""];
+  switch (detail.kind) {
+    case "spend_exceeded":
+      lines.push("The Coder deployment's chat spend limit was reached, so this " + "chat could not be created.", "", `- chat-error-kind=${detail.kind}`, `- Spent: ${formatMicrosAsDollars(detail.spentMicros)}`, `- Limit: ${formatMicrosAsDollars(detail.limitMicros)}`);
+      if (detail.resetsAt) {
+        lines.push(`- Resets at: ${detail.resetsAt}`);
+      }
+      lines.push("", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    case "user_not_found":
+      lines.push("No Coder user could be resolved for this run. Adjust either " + "the `github-user-id` input (the GitHub identity is not linked " + "to a Coder user) or pass `coder-username` directly.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    case "user_ambiguous":
+      lines.push("Multiple Coder users matched the GitHub identity. Set the " + "`coder-username` input to the specific account this workflow " + "should run as.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    case "org_not_found":
+      lines.push("The resolved Coder user has no matching organization. Set the " + "`coder-organization` input or grant the user a membership.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    case "api_error":
+      lines.push("An unexpected error occurred while running the action.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    case "timeout":
+      lines.push("`wait: complete` polling did not reach a terminal status within " + "`wait-timeout-seconds`.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", `View chats in the Coder deployment: ${ctx.chatsUrl}`);
+      break;
+    default: {
+      const _exhaustive = detail;
+      throw new Error(`buildFailureCommentBody: unhandled ChatErrorKind ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+  lines.push("", ctx.marker);
+  return lines.join(`
+`);
+}
+async function findCommentByPredicate(args) {
+  const all = await args.octokit.paginate(args.octokit.rest.issues.listComments, {
+    owner: args.owner,
+    repo: args.repo,
+    issue_number: args.issueNumber,
+    per_page: 100
+  });
+  for (let i = all.length - 1;i >= 0; i--) {
+    const comment = all[i];
+    if (args.predicate(comment)) {
+      return comment;
+    }
+  }
+  return;
+}
+async function upsertComment(args) {
+  const label = args.logLabel ?? "comment";
+  try {
+    const existing = await findCommentByPredicate({
+      octokit: args.octokit,
+      owner: args.owner,
+      repo: args.repo,
+      issueNumber: args.issueNumber,
+      predicate: args.predicate
+    });
+    if (existing) {
+      await args.octokit.rest.issues.updateComment({
+        owner: args.owner,
+        repo: args.repo,
+        comment_id: existing.id,
+        body: args.body
+      });
+      return;
+    }
+    await args.octokit.rest.issues.createComment({
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: args.issueNumber,
+      body: args.body
+    });
+  } catch (error2) {
+    core.error(`Failed to post ${label}: ${error2}`);
+  }
+}
+async function upsertCommentByMarker(args) {
+  await upsertComment({
+    octokit: args.octokit,
+    owner: args.owner,
+    repo: args.repo,
+    issueNumber: args.issueNumber,
+    body: args.body,
+    predicate: (comment) => comment.body?.includes(args.marker) ?? false,
+    logLabel: "failure comment"
+  });
+}
+function normalizeBaseUrl(coderURL) {
+  return coderURL.split(/[?#]/)[0].replace(/\/$/, "");
+}
+function buildDeploymentChatsUrl(coderURL) {
+  return `${normalizeBaseUrl(coderURL)}/chats`;
+}
+
+// src/action.ts
+var defaultClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+};
+var POLL_INTERVAL_MS = 5000;
+var MAX_CONSECUTIVE_POLL_FAILURES = 3;
+var TERMINAL_STATUSES = new Set([
+  "waiting",
+  "completed",
+  "error"
+]);
+
+class ActionFailureError extends Error {
+  kind;
+  chat;
+  constructor(kind, message, chat, options) {
+    super(message, options?.cause ? { cause: options.cause } : undefined);
+    this.kind = kind;
+    this.chat = chat;
+    this.name = "ActionFailureError";
+    this.chatId = options?.chatId ?? chat?.id;
+  }
+  chatId;
+  coderUsername;
+  chatUrl;
+}
+function describeError(err) {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+var TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR"
+]);
+function classifyAutoResolveTrust(context) {
+  const pr = context.payload.pull_request;
+  if (pr) {
+    const headRepo = pr.head?.repo;
+    const baseRepo = pr.base?.repo;
+    const headFullName = headRepo?.full_name;
+    const baseFullName = baseRepo?.full_name;
+    const isFork = headRepo === null || headRepo?.fork === true || typeof headFullName === "string" && typeof baseFullName === "string" && headFullName !== baseFullName;
+    if (isFork) {
+      return {
+        kind: "untrusted",
+        reason: "the pull request is from a fork; auto-resolve refuses to bind " + "the workflow's Coder identity to a fork-PR author"
+      };
+    }
+  }
+  const associations = [
+    { source: "comment", value: context.payload.comment?.author_association },
+    { source: "review", value: context.payload.review?.author_association }
+  ];
+  for (const { source, value } of associations) {
+    if (typeof value !== "string" || value.length === 0) {
+      continue;
+    }
+    if (TRUSTED_AUTHOR_ASSOCIATIONS.has(value)) {
+      return {
+        kind: "trusted",
+        reason: `${source}.author_association is ${value}`
+      };
+    }
+    return {
+      kind: "untrusted",
+      reason: `${source}.author_association is ${value}, which lacks ` + "repository write access"
+    };
+  }
+  return { kind: "no-signal" };
+}
+
+class CoderAgentChatAction {
+  coder;
+  octokit;
+  inputs;
+  context;
+  clock;
+  constructor(coder, octokit, inputs, context, clock = defaultClock) {
+    this.coder = coder;
+    this.octokit = octokit;
+    this.inputs = inputs;
+    this.context = context;
+    this.clock = clock;
+  }
+  parseGithubURL() {
+    if (!this.inputs.githubURL) {
+      throw new Error("Missing GitHub URL");
+    }
+    const match = this.inputs.githubURL.match(GITHUB_URL_REGEX);
+    if (!match) {
+      throw new Error(`Invalid GitHub URL: ${this.inputs.githubURL}`);
+    }
+    return {
+      githubOrg: match[1],
+      githubRepo: match[2],
+      githubIssueNumber: parseInt(match[3], 10)
+    };
+  }
+  generateChatUrl(chatId) {
+    return `${normalizeBaseUrl(this.inputs.coderURL)}/chats/${chatId}`;
+  }
+  async commentOnIssue(chatUrl, owner, repo, issueNumber) {
+    const body = `Agent chat: ${chatUrl}`;
+    await upsertComment({
+      octokit: this.octokit,
+      owner,
+      repo,
+      issueNumber,
+      body,
+      predicate: (comment) => comment.body?.startsWith("Agent chat:") ?? false
+    });
+  }
+  warnUnwiredInputs() {
+    if (this.inputs.idempotencyKey !== undefined) {
+      core2.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
+    }
+    if (this.inputs.coderOrganization !== undefined) {
+      core2.warning("`coder-organization` is declared but not yet wired through to " + "the API; the chat will be created without an explicit " + "organization.");
+    }
+  }
+  buildOutputs(coderUsername, chat, chatCreated) {
+    const diff = chat.diff_status;
+    const hasPR = diff?.pr_number != null;
+    return {
+      coderUsername,
+      chatId: chat.id,
+      chatUrl: this.generateChatUrl(chat.id),
+      chatCreated,
+      chatStatus: chat.status,
+      chatTitle: chat.title,
+      workspaceId: chat.workspace_id ?? undefined,
+      pullRequestUrl: diff?.url ?? undefined,
+      pullRequestState: diff?.pull_request_state ?? undefined,
+      pullRequestTitle: diff?.pull_request_title ?? undefined,
+      pullRequestNumber: diff?.pr_number ?? undefined,
+      additions: hasPR ? diff?.additions : undefined,
+      deletions: hasPR ? diff?.deletions : undefined,
+      changedFiles: hasPR ? diff?.changed_files : undefined,
+      headBranch: diff?.head_branch ?? undefined,
+      baseBranch: diff?.base_branch ?? undefined,
+      chatErrorMessage: chat.last_error ?? undefined
+    };
+  }
+  async waitForTerminal(chatId, options = {}) {
+    const timeoutMs = this.inputs.waitTimeoutSeconds * 1000;
+    const startedAt = this.clock.now();
+    let latest;
+    let sawNonTerminal = !options.requireNonTerminalFirst;
+    let firstTerminal;
+    let consecutiveFailures = 0;
+    while (true) {
+      try {
+        latest = await this.coder.getChat(chatId);
+        consecutiveFailures = 0;
+      } catch (err) {
+        consecutiveFailures++;
+        const message = err instanceof Error ? err.message : String(err);
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          throw new ActionFailureError("api_error", `Polling chat ${chatId} failed after ${consecutiveFailures} attempts: ${message}`, undefined, { cause: err, chatId });
+        }
+        core2.warning(`Poll ${consecutiveFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} for chat ${chatId} failed: ${message}`);
+      }
+      if (latest && consecutiveFailures === 0) {
+        core2.info(`Chat status: ${latest.status}`);
+        const isTerminal = TERMINAL_STATUSES.has(latest.status);
+        if (isTerminal) {
+          if (sawNonTerminal) {
+            return this.throwOnChatError(latest);
+          }
+          if (firstTerminal === undefined) {
+            firstTerminal = latest.status;
+          } else if (latest.status !== firstTerminal) {
+            return this.throwOnChatError(latest);
+          }
+        } else {
+          sawNonTerminal = true;
+        }
+      }
+      const elapsedMs = this.clock.now() - startedAt;
+      if (elapsedMs >= timeoutMs) {
+        throw new ActionFailureError("timeout", this.timeoutMessage(chatId, latest, sawNonTerminal), latest, { chatId });
+      }
+      await this.clock.sleep(POLL_INTERVAL_MS);
+    }
+  }
+  timeoutMessage(chatId, latest, sawNonTerminal) {
+    if (!sawNonTerminal && latest) {
+      return `Chat ${chatId} remained in terminal status \`${latest.status}\` ` + `for the entire ${this.inputs.waitTimeoutSeconds}s wait window; ` + "the agent may not have processed the follow-up message.";
+    }
+    return `Timed out after ${this.inputs.waitTimeoutSeconds}s waiting for chat ${chatId} to reach a terminal status`;
+  }
+  throwOnChatError(chat) {
+    if (chat.status === "error") {
+      const message = chat.last_error || "Chat ended in error state";
+      throw new ActionFailureError("api_error", message, chat);
+    }
+    return chat;
+  }
+  async pollWithContext(chatId, context, options) {
+    try {
+      return await this.waitForTerminal(chatId, options);
+    } catch (err) {
+      if (err instanceof ActionFailureError) {
+        if (!err.chat && context.atCreation) {
+          const rewrapped = new ActionFailureError(err.kind, err.message, context.atCreation, { cause: err.cause, chatId });
+          rewrapped.coderUsername = context.coderUsername;
+          rewrapped.chatUrl = context.chatUrl;
+          throw rewrapped;
+        }
+        err.coderUsername = context.coderUsername;
+        err.chatUrl = context.chatUrl;
+      }
+      throw err;
+    }
+  }
+  async resolveCoderUsername() {
+    if (this.inputs.coderUsername) {
+      core2.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
+      return this.inputs.coderUsername;
+    }
+    if (this.inputs.githubUserID !== undefined) {
+      core2.info(`Looking up Coder user by GitHub user ID: ${this.inputs.githubUserID}`);
+      const coderUser = await this.coder.getCoderUserByGitHubId(this.inputs.githubUserID);
+      return coderUser.username;
+    }
+    if (this.context.eventName === "schedule") {
+      throw new Error("Cannot auto-resolve a GitHub identity for `schedule` events: " + "`github.context.actor` for cron-triggered runs is the workflow " + "file's last editor, not the triggering user. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+    }
+    const trust = classifyAutoResolveTrust(this.context);
+    if (trust.kind === "untrusted") {
+      throw new Error("Refusing to auto-resolve a GitHub identity: " + `${trust.reason}. ` + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user " + "the chat should run as.");
+    }
+    if (trust.kind === "trusted") {
+      core2.info(`Auto-resolve trust check passed: ${trust.reason}`);
+    }
+    const senderId = this.context.payload?.sender?.id;
+    if (typeof senderId === "number" && Number.isInteger(senderId) && senderId > 0) {
+      core2.info(`Auto-resolving Coder user from github.context.payload.sender.id: ${senderId}`);
+      try {
+        const coderUser = await this.coder.getCoderUserByGitHubId(senderId);
+        return coderUser.username;
+      } catch (err) {
+        throw new Error(`Failed to resolve Coder user from github.context.payload.sender.id (${senderId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+    }
+    const actor = this.context.actor;
+    if (actor) {
+      core2.info(`Auto-resolving Coder user from github.context.actor: ${actor}`);
+      let actorId;
+      try {
+        const { data } = await this.octokit.rest.users.getByUsername({
+          username: actor
+        });
+        actorId = data.id;
+      } catch (err) {
+        throw new Error(`Failed to resolve GitHub user id for github.context.actor (${actor}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+      try {
+        const coderUser = await this.coder.getCoderUserByGitHubId(actorId);
+        return coderUser.username;
+      } catch (err) {
+        throw new Error(`Failed to resolve Coder user for github.context.actor (${actor}, GitHub user id ${actorId}): ${describeError(err)}. ` + "Set the `coder-username` input to bypass auto-resolution.");
+      }
+    }
+    throw new Error("Could not auto-resolve a GitHub identity from the workflow context. " + "Set the `coder-username` input to a Coder username, or set " + "`github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+  }
+  async run() {
+    try {
+      return await this.runInner();
+    } catch (error3) {
+      let failure;
+      try {
+        failure = await this.handleFailure(error3);
+      } catch (handlerError) {
+        core2.error(`Failure-path handler errored: ${handlerError}`);
+        throw error3;
+      }
+      throw failure;
+    }
+  }
+  async handleFailure(error3) {
+    const detail = classifyError(error3);
+    const failure = error3 instanceof ActionFailureError ? error3 : new ActionFailureError(detail.kind, detail.message, undefined, {
+      cause: error3
+    });
+    if (!this.inputs.commentOnIssue) {
+      return failure;
+    }
+    let target;
+    try {
+      target = this.parseGithubURL();
+    } catch (parseError) {
+      core2.error(`Cannot post failure comment: github-url is malformed (${parseError})`);
+      return failure;
+    }
+    const workflow = process.env.GITHUB_WORKFLOW || undefined;
+    const marker = buildCommentMarker(deriveCommentKey({ ...this.inputs, workflow }));
+    const body = buildFailureCommentBody(detail, {
+      chatsUrl: buildDeploymentChatsUrl(this.inputs.coderURL),
+      marker
+    });
+    await upsertCommentByMarker({
+      octokit: this.octokit,
+      owner: target.githubOrg,
+      repo: target.githubRepo,
+      issueNumber: target.githubIssueNumber,
+      body,
+      marker
+    });
+    return failure;
+  }
+  async runInner() {
+    this.warnUnwiredInputs();
+    const coderUsername = await this.resolveCoderUsername();
+    const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();
+    core2.info(`GitHub owner: ${githubOrg}`);
+    core2.info(`GitHub repo: ${githubRepo}`);
+    core2.info(`GitHub item number: ${githubIssueNumber}`);
+    core2.info(`Coder username: ${coderUsername}`);
+    if (this.inputs.existingChatId) {
+      core2.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
+      const chatId = this.inputs.existingChatId;
+      await this.coder.createChatMessage(chatId, {
+        content: [{ type: "text", text: this.inputs.chatPrompt }],
+        model_config_id: this.inputs.modelConfigId
+      });
+      core2.info("Message sent successfully");
+      const chatUrl2 = this.generateChatUrl(chatId);
+      let chat;
+      if (this.inputs.wait === "complete") {
+        core2.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
+        chat = await this.pollWithContext(chatId, { coderUsername, chatUrl: chatUrl2 }, { requireNonTerminalFirst: true });
+        core2.info(`Chat reached terminal status: ${chat.status}`);
+      } else {
+        try {
+          chat = await this.coder.getChat(chatId);
+          core2.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+        } catch (error3) {
+          core2.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error3}`);
+        }
+      }
+      if (this.inputs.commentOnIssue) {
+        core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+        await this.commentOnIssue(chatUrl2, githubOrg, githubRepo, githubIssueNumber);
+      }
+      if (chat) {
+        return this.buildOutputs(coderUsername, chat, false);
+      }
+      return {
+        coderUsername,
+        chatId,
+        chatUrl: chatUrl2,
+        chatCreated: false
+      };
+    }
+    core2.info("Creating new agent chat...");
+    const req = {
+      content: [{ type: "text", text: this.inputs.chatPrompt }],
+      workspace_id: this.inputs.workspaceId,
+      model_config_id: this.inputs.modelConfigId
+    };
+    const createdChat = await this.coder.createChat(req);
+    core2.info(`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
+    const chatUrl = this.generateChatUrl(createdChat.id);
+    core2.info(`Chat URL: ${chatUrl}`);
+    let finalChat = createdChat;
+    if (this.inputs.wait === "complete") {
+      core2.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
+      finalChat = await this.pollWithContext(createdChat.id, {
+        coderUsername,
+        chatUrl,
+        atCreation: createdChat
+      });
+      core2.info(`Chat reached terminal status: ${finalChat.status}`);
+    }
+    if (this.inputs.commentOnIssue) {
+      core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+      await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
+    } else {
+      core2.info("Skipping comment on issue (commentOnIssue is false)");
+    }
+    return this.buildOutputs(coderUsername, finalChat, true);
+  }
+}
+
 // src/outputs.ts
-var core2 = __toESM(require_core(), 1);
+var core3 = __toESM(require_core(), 1);
 var OUTPUT_MAP = [
   { name: "coder-username", prop: "coderUsername", required: true },
   { name: "chat-id", prop: "chatId", required: true },
@@ -27270,23 +27499,23 @@ function setActionOutputs(outputs) {
       continue;
     }
     const stringified = typeof value === "string" ? value : String(value ?? "");
-    core2.setOutput(name, stringified);
+    core3.setOutput(name, stringified);
   }
 }
-function setFailureOutputs(error2) {
-  core2.setOutput("chat-error-kind", error2.kind);
-  core2.setOutput("chat-error-message", error2.message);
-  if (error2.chatId) {
-    core2.setOutput("chat-id", error2.chatId);
+function setFailureOutputs(error3) {
+  core3.setOutput("chat-error-kind", error3.kind);
+  core3.setOutput("chat-error-message", error3.message);
+  if (error3.chatId) {
+    core3.setOutput("chat-id", error3.chatId);
   }
-  if (error2.chat) {
-    core2.setOutput("chat-status", error2.chat.status);
+  if (error3.chat) {
+    core3.setOutput("chat-status", error3.chat.status);
   }
-  if (error2.chatUrl) {
-    core2.setOutput("chat-url", error2.chatUrl);
+  if (error3.chatUrl) {
+    core3.setOutput("chat-url", error3.chatUrl);
   }
-  if (error2.coderUsername) {
-    core2.setOutput("coder-username", error2.coderUsername);
+  if (error3.coderUsername) {
+    core3.setOutput("coder-username", error3.coderUsername);
   }
 }
 
@@ -27345,50 +27574,50 @@ var ActionOutputsSchema = exports_external.object({
 // src/index.ts
 async function main() {
   try {
-    const githubUserIdInput = core3.getInput("github-user-id");
+    const githubUserIdInput = core4.getInput("github-user-id");
     const githubUserID = githubUserIdInput ? Number.parseInt(githubUserIdInput, 10) : undefined;
     const inputs = ActionInputsSchema.parse({
-      coderURL: core3.getInput("coder-url", { required: true }),
-      coderToken: core3.getInput("coder-token", { required: true }),
-      chatPrompt: core3.getInput("chat-prompt", { required: true }),
-      coderOrganization: core3.getInput("coder-organization") || undefined,
-      githubURL: core3.getInput("github-url", { required: true }),
-      githubToken: core3.getInput("github-token", { required: true }),
+      coderURL: core4.getInput("coder-url", { required: true }),
+      coderToken: core4.getInput("coder-token", { required: true }),
+      chatPrompt: core4.getInput("chat-prompt", { required: true }),
+      coderOrganization: core4.getInput("coder-organization") || undefined,
+      githubURL: core4.getInput("github-url", { required: true }),
+      githubToken: core4.getInput("github-token", { required: true }),
       githubUserID,
-      coderUsername: core3.getInput("coder-username") || undefined,
-      workspaceId: core3.getInput("workspace-id") || undefined,
-      modelConfigId: core3.getInput("model-config-id") || undefined,
-      existingChatId: core3.getInput("existing-chat-id") || undefined,
-      commentOnIssue: core3.getBooleanInput("comment-on-issue"),
-      wait: core3.getInput("wait") || undefined,
-      waitTimeoutSeconds: core3.getInput("wait-timeout-seconds") || undefined,
-      idempotencyKey: core3.getInput("idempotency-key") || undefined
+      coderUsername: core4.getInput("coder-username") || undefined,
+      workspaceId: core4.getInput("workspace-id") || undefined,
+      modelConfigId: core4.getInput("model-config-id") || undefined,
+      existingChatId: core4.getInput("existing-chat-id") || undefined,
+      commentOnIssue: core4.getBooleanInput("comment-on-issue"),
+      wait: core4.getInput("wait") || undefined,
+      waitTimeoutSeconds: core4.getInput("wait-timeout-seconds") || undefined,
+      idempotencyKey: core4.getInput("idempotency-key") || undefined
     });
-    core3.debug("Inputs validated successfully");
-    core3.debug(`Coder URL: ${inputs.coderURL}`);
-    core3.debug(`Organization: ${inputs.coderOrganization}`);
+    core4.debug("Inputs validated successfully");
+    core4.debug(`Coder URL: ${inputs.coderURL}`);
+    core4.debug(`Organization: ${inputs.coderOrganization}`);
     const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
     const octokit = github.getOctokit(inputs.githubToken);
-    core3.debug("Clients initialized");
+    core4.debug("Clients initialized");
     const action = new CoderAgentChatAction(coder, octokit, inputs, github.context);
     const outputs = await action.run();
     setActionOutputs(outputs);
-    core3.debug("Action completed successfully");
-    core3.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
-  } catch (error2) {
-    if (error2 instanceof ActionFailureError) {
-      setFailureOutputs(error2);
-      core3.setFailed(error2.message);
-      console.error("Action failed:", error2);
-    } else if (error2 instanceof Error) {
-      core3.setFailed(error2.message);
-      console.error("Action failed:", error2);
-      if (error2.stack) {
-        console.error("Stack trace:", error2.stack);
+    core4.debug("Action completed successfully");
+    core4.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
+  } catch (error3) {
+    if (error3 instanceof ActionFailureError) {
+      setFailureOutputs(error3);
+      core4.setFailed(error3.message);
+      console.error("Action failed:", error3.cause ?? error3);
+    } else if (error3 instanceof Error) {
+      core4.setFailed(error3.message);
+      console.error("Action failed:", error3);
+      if (error3.stack) {
+        console.error("Stack trace:", error3.stack);
       }
     } else {
-      core3.setFailed("Unknown error occurred");
-      console.error("Unknown error:", error2);
+      core4.setFailed("Unknown error occurred");
+      console.error("Unknown error:", error3);
     }
     process.exit(1);
   }

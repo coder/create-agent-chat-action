@@ -180,16 +180,29 @@ export function createMockContext(
 }
 
 /**
- * Mock Octokit for testing
+ * Mock Octokit for testing. Includes a `paginate` mock so tests for code
+ * paths that walk every comment with `octokit.paginate(listComments, ...)`
+ * can return the full list in one shot. By default `paginate` resolves to
+ * the `data` array of whatever `listComments` was set to return so existing
+ * single-page tests keep working without changing every call site.
  */
 export function createMockOctokit() {
+	const listComments = mock();
+	const paginate = mock(async () => {
+		const result = await listComments();
+		return (result?.data ?? []) as unknown[];
+	}) as ReturnType<typeof mock> & {
+		iterator: ReturnType<typeof mock>;
+	};
+	paginate.iterator = mock();
 	return {
+		paginate,
 		rest: {
 			users: {
 				getByUsername: mock(),
 			},
 			issues: {
-				listComments: mock(),
+				listComments,
 				createComment: mock(),
 				updateComment: mock(),
 			},

@@ -55,7 +55,7 @@ async function main() {
 		if (error instanceof ActionFailureError) {
 			setFailureOutputs(error);
 			core.setFailed(error.message);
-			console.error("Action failed:", error);
+			console.error("Action failed:", error.cause ?? error);
 		} else if (error instanceof Error) {
 			core.setFailed(error.message);
 			console.error("Action failed:", error);
