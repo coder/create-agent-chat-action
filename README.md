@@ -80,6 +80,40 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
+### Wait for the chat to finish (`wait: complete`)
+
+When `wait: complete` is set, the action polls the chat every 5
+seconds until it reaches a terminal status (`waiting`, `completed`, or
+`error`) or `wait-timeout-seconds` (default 600) elapses. This
+replaces the inline polling loop used by reference workflows such as
+[`coder/coder/.github/workflows/doc-check.yaml`](https://github.com/coder/coder/blob/main/.github/workflows/doc-check.yaml).
+
+```yaml
+      - name: Run doc-check via Coder Agent Chat
+        uses: coder/create-agent-chat-action@v0
+        with:
+          coder-url: ${{ secrets.CODER_URL }}
+          coder-token: ${{ secrets.CODER_TOKEN }}
+          chat-prompt: |
+            Use the doc-check skill to review PR #${{ github.event.pull_request.number }}.
+          github-url: ${{ github.event.pull_request.html_url }}
+          github-user-id: ${{ github.event.sender.id }}
+          github-token: ${{ github.token }}
+          wait: complete
+          wait-timeout-seconds: 600
+```
+
+**Caveat on `waiting`:** the chats API surfaces both "agent finished"
+and "agent waiting for human input" as the same `waiting` status. v0
+treats `waiting` as terminal and exits successfully. A v1 platform
+change will distinguish the two cases.
+
+When the chat enters `error` or the timeout elapses, the action exits
+non-zero and sets the `chat-error-kind` and `chat-error-message`
+outputs even on the failure path so a follow-up step can branch on
+them. `chat-error-kind=timeout` is reserved for the wait-timeout case;
+other kinds are documented under [Outputs](#outputs).
+
 ## Inputs
 
 | Name                  | Description                                                                                                                                                                              | Required | Default |
@@ -96,7 +130,7 @@ jobs:
 | model-config-id       | Model configuration ID to use for the chat.                                                                                                                                              | false    | -       |
 | existing-chat-id      | Existing chat ID to send a follow-up message to instead of creating a new chat.                                                                                                          | false    | -       |
 | comment-on-issue      | Whether to comment on the GitHub issue or pull request with the chat URL and status.                                                                                                     | false    | true    |
-| wait                  | Wait mode. Reserved: `complete` is intended to poll until terminal status or wait-timeout-seconds, but is not yet wired; the action emits a warning and returns immediately.             | false    | none    |
+| wait                  | Wait mode. `none` (default) returns immediately. `complete` polls every 5 seconds until the chat reaches a terminal status (`waiting`, `completed`, `error`) or `wait-timeout-seconds` elapses. | false    | none    |
 | wait-timeout-seconds  | Maximum seconds to wait when wait=complete before failing with a timeout.                                                                                                                | false    | 600     |
 | idempotency-key       | Optional key used to deduplicate chats. Reserved; not yet wired, the action emits a warning if set and always creates a new chat.                                                        | false    | -       |
 
@@ -120,5 +154,5 @@ jobs:
 | diff-changed-files  | Number of files changed in tracked changes.                                                                                                              |
 | head-branch         | Head branch name when available.                                                                                                                         |
 | base-branch         | Base branch name when available.                                                                                                                         |
-| chat-error-kind     | Machine-readable error kind when the chat fails. Reserved; not yet populated.                                                                           |
+| chat-error-kind     | Machine-readable error kind when the chat fails. Currently emits `api_error` (chat ended in error or polling failed) and `timeout` (wait=complete reached `wait-timeout-seconds`). |
 | chat-error-message  | Human-readable error message when the chat fails.                                                                                                        |

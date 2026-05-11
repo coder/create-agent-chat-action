@@ -1,8 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import * as core from "@actions/core";
-import { OUTPUT_MAP, setActionOutputs } from "./outputs";
+import { ActionFailureError } from "./action";
+import { ChatIdSchema } from "./coder-client";
+import { OUTPUT_MAP, setActionOutputs, setFailureOutputs } from "./outputs";
 import type { ActionOutputs } from "./schemas";
 import { ActionOutputsSchema } from "./schemas";
+import { mockChat } from "./test-helpers";
 
 const baseOutputs: ActionOutputs = {
 	coderUsername: "u",
@@ -189,10 +192,94 @@ describe("setActionOutputs", () => {
 				changedFiles: 3,
 				headBranch: "h",
 				baseBranch: "b",
-				chatErrorKind: "k",
+				chatErrorKind: "api_error",
 				chatErrorMessage: "m",
 			});
 			expect(cap.calls).toHaveLength(OUTPUT_MAP.length);
+		} finally {
+			cap.restore();
+		}
+	});
+});
+
+describe("setFailureOutputs", () => {
+	test("always sets chat-error-kind and chat-error-message", () => {
+		const cap = captureSetOutput();
+		try {
+			const err = new ActionFailureError("timeout", "Timed out after 600s");
+
+			setFailureOutputs(err);
+
+			expect(cap.calls).toContainEqual(["chat-error-kind", "timeout"]);
+			expect(cap.calls).toContainEqual([
+				"chat-error-message",
+				"Timed out after 600s",
+			]);
+			const names = cap.calls.map(([n]) => n);
+			expect(names).not.toContain("chat-id");
+			expect(names).not.toContain("chat-status");
+			expect(names).not.toContain("chat-url");
+			expect(names).not.toContain("coder-username");
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("emits chat-id and chat-status when error.chat is set", () => {
+		const cap = captureSetOutput();
+		try {
+			const err = new ActionFailureError(
+				"api_error",
+				"Anthropic 429",
+				mockChat,
+			);
+
+			setFailureOutputs(err);
+
+			expect(cap.calls).toContainEqual(["chat-id", String(mockChat.id)]);
+			expect(cap.calls).toContainEqual(["chat-status", mockChat.status]);
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("emits chat-id from chatId option when chat is absent", () => {
+		// Transport failure on first getChat: no fresh chat object,
+		// but chatId is forwarded so chat-id is still populated.
+		const cap = captureSetOutput();
+		try {
+			const chatId = ChatIdSchema.parse("990e8400-e29b-41d4-a716-446655440000");
+			const err = new ActionFailureError(
+				"api_error",
+				"connection reset",
+				undefined,
+				{ chatId },
+			);
+
+			setFailureOutputs(err);
+
+			expect(cap.calls).toContainEqual(["chat-id", String(chatId)]);
+			const names = cap.calls.map(([n]) => n);
+			expect(names).not.toContain("chat-status");
+		} finally {
+			cap.restore();
+		}
+	});
+
+	test("emits chat-url and coder-username when decorated", () => {
+		const cap = captureSetOutput();
+		try {
+			const err = new ActionFailureError("timeout", "Timed out", mockChat);
+			err.chatUrl = "https://coder.test/chats/abc";
+			err.coderUsername = "testuser";
+
+			setFailureOutputs(err);
+
+			expect(cap.calls).toContainEqual([
+				"chat-url",
+				"https://coder.test/chats/abc",
+			]);
+			expect(cap.calls).toContainEqual(["coder-username", "testuser"]);
 		} finally {
 			cap.restore();
 		}

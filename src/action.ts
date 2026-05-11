@@ -4,17 +4,83 @@ import type {
 	CoderClient,
 	CoderChat,
 	ChatId,
+	ChatStatus,
 } from "./coder-client";
-import type { ActionInputs, ActionOutputs } from "./schemas";
+import type { ActionInputs, ActionOutputs, ChatErrorKind } from "./schemas";
 import type { getOctokit } from "@actions/github";
 
 export type Octokit = ReturnType<typeof getOctokit>;
+
+/**
+ * Clock abstracts wall-clock time so the polling loop can be driven by
+ * a fake in tests. The default uses Date.now and setTimeout.
+ */
+export interface Clock {
+	now(): number;
+	sleep(ms: number): Promise<void>;
+}
+
+export const defaultClock: Clock = {
+	now: () => Date.now(),
+	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/**
+ * Polling cadence for wait=complete. Matches doc-check.yaml's loop.
+ * Not exposed as an input.
+ */
+export const POLL_INTERVAL_MS = 5000;
+
+// Maximum consecutive getChat failures tolerated by the polling loop
+// before failing the action. The reference bash loop retries naturally
+// on curl failure; the typed loop has to ride out transient outages
+// (rolling deploys, brief 5xx) explicitly.
+export const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+
+// Typed against ChatStatus so a typo in this list (e.g. "compleeted")
+// fails the compile, instead of silently never matching and causing an
+// infinite poll until timeout.
+const TERMINAL_STATUSES: ReadonlySet<ChatStatus> = new Set<ChatStatus>([
+	"waiting",
+	"completed",
+	"error",
+]);
+
+/**
+ * Thrown when the chat ends in `error` or the polling loop times out.
+ * index.ts maps this onto the chat-error-* and chat-* outputs and
+ * calls core.setFailed. The optional cause preserves stack traces
+ * from the underlying transport error.
+ */
+export class ActionFailureError extends Error {
+	constructor(
+		public readonly kind: ChatErrorKind,
+		message: string,
+		public readonly chat?: CoderChat,
+		options?: { cause?: unknown; chatId?: ChatId },
+	) {
+		super(message, options?.cause ? { cause: options.cause } : undefined);
+		this.name = "ActionFailureError";
+		this.chatId = options?.chatId ?? chat?.id;
+	}
+
+	// chat-id output. Falls back to options.chatId when chat is
+	// undefined (e.g. transport failure on the first getChat).
+	readonly chatId?: ChatId;
+
+	// coder-username output. Decorated by run() once the user resolves.
+	coderUsername?: string;
+
+	// chat-url output. Decorated by run() once the chat URL is built.
+	chatUrl?: string;
+}
 
 export class CoderAgentChatAction {
 	constructor(
 		private readonly coder: CoderClient,
 		private readonly octokit: Octokit,
 		private readonly inputs: ActionInputs,
+		private readonly clock: Clock = defaultClock,
 	) {}
 
 	/**
@@ -102,12 +168,6 @@ export class CoderAgentChatAction {
 	 * opt in.
 	 */
 	warnUnwiredInputs(): void {
-		if (this.inputs.wait === "complete") {
-			core.warning(
-				"`wait: complete` is declared but not yet implemented; " +
-					"the action will return immediately.",
-			);
-		}
 		if (this.inputs.idempotencyKey !== undefined) {
 			core.warning(
 				"`idempotency-key` is declared but not yet implemented; " +
@@ -160,6 +220,166 @@ export class CoderAgentChatAction {
 	}
 
 	/**
+	 * Poll the chat until terminal (waiting, completed, error) or
+	 * timeout. Throws ActionFailureError on the `error` terminal so
+	 * callers cannot mistake it for success.
+	 *
+	 * `requireNonTerminalFirst` defends against TOCTOU after a state-
+	 * changing call (e.g. createChatMessage to a chat already in
+	 * `waiting`): the first poll may see the pre-message status before
+	 * the agent transitions. When set, the loop requires at least one
+	 * non-terminal observation before accepting any terminal.
+	 */
+	async waitForTerminal(
+		chatId: ChatId,
+		options: { requireNonTerminalFirst?: boolean } = {},
+	): Promise<CoderChat> {
+		const timeoutMs = this.inputs.waitTimeoutSeconds * 1000;
+		const startedAt = this.clock.now();
+		let latest: CoderChat | undefined;
+		let sawNonTerminal = !options.requireNonTerminalFirst;
+		let firstTerminal: ChatStatus | undefined;
+		let consecutiveFailures = 0;
+
+		// Poll-first-then-sleep mirrors doc-check.yaml's bash loop: 3 polls
+		// means 2 sleeps.
+		while (true) {
+			try {
+				latest = await this.coder.getChat(chatId);
+				consecutiveFailures = 0;
+			} catch (err) {
+				consecutiveFailures++;
+				const message = err instanceof Error ? err.message : String(err);
+				if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+					// Wrap transport failures (network, 5xx, auth) so workflows
+					// branching on chat-error-kind see api_error rather than a
+					// plain Error. Forward chatId explicitly so chat-id is set
+					// even when no fresh chat object is available.
+					throw new ActionFailureError(
+						"api_error",
+						`Polling chat ${chatId} failed after ${consecutiveFailures} attempts: ${message}`,
+						undefined,
+						{ cause: err, chatId },
+					);
+				}
+				// Transient failure: log and ride it out, mirroring the
+				// reference bash loop's natural retry on curl failure.
+				core.warning(
+					`Poll ${consecutiveFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} for chat ${chatId} failed: ${message}`,
+				);
+			}
+
+			if (latest && consecutiveFailures === 0) {
+				core.info(`Chat status: ${latest.status}`);
+
+				const isTerminal = TERMINAL_STATUSES.has(latest.status);
+				if (isTerminal) {
+					if (sawNonTerminal) {
+						return this.throwOnChatError(latest);
+					}
+					// requireNonTerminalFirst is true and we have not seen a
+					// non-terminal status yet. Record the first terminal we
+					// see; accept any later poll that observes a different
+					// terminal. This catches a fast follow-up message that
+					// transitions waiting -> completed (or -> error) within
+					// one poll interval, which would otherwise look stale.
+					if (firstTerminal === undefined) {
+						firstTerminal = latest.status;
+					} else if (latest.status !== firstTerminal) {
+						return this.throwOnChatError(latest);
+					}
+				} else {
+					sawNonTerminal = true;
+				}
+			}
+
+			const elapsedMs = this.clock.now() - startedAt;
+			if (elapsedMs >= timeoutMs) {
+				throw new ActionFailureError(
+					"timeout",
+					this.timeoutMessage(chatId, latest, sawNonTerminal),
+					latest,
+					{ chatId },
+				);
+			}
+
+			await this.clock.sleep(POLL_INTERVAL_MS);
+		}
+	}
+
+	private timeoutMessage(
+		chatId: ChatId,
+		latest: CoderChat | undefined,
+		sawNonTerminal: boolean,
+	): string {
+		// requireNonTerminalFirst was set, the chat never left its starting
+		// terminal status, and the timeout fired. The agent likely did not
+		// process the follow-up message at all; surface that explicitly.
+		if (!sawNonTerminal && latest) {
+			return (
+				`Chat ${chatId} remained in terminal status \`${latest.status}\` ` +
+				`for the entire ${this.inputs.waitTimeoutSeconds}s wait window; ` +
+				"the agent may not have processed the follow-up message."
+			);
+		}
+		return `Timed out after ${this.inputs.waitTimeoutSeconds}s waiting for chat ${chatId} to reach a terminal status`;
+	}
+
+	/**
+	 * Throw when a terminal chat ended in `error`; pass `waiting` and
+	 * `completed` through unchanged. The `api_error` kind is coarse:
+	 * a workflow branching on it cannot distinguish chat-level failures
+	 * from polling-transport failures. CODAGT-290 will refine the
+	 * mapping by inspecting `last_error`.
+	 */
+	private throwOnChatError(chat: CoderChat): CoderChat {
+		if (chat.status === "error") {
+			const message = chat.last_error || "Chat ended in error state";
+			throw new ActionFailureError("api_error", message, chat);
+		}
+		return chat;
+	}
+
+	/**
+	 * Wrap waitForTerminal so a thrown ActionFailureError carries the
+	 * at-creation context (chat-id, chat-status, chat-url, coder-
+	 * username). On a transport failure during the first getChat,
+	 * error.chat is undefined; fill it from the at-creation snapshot.
+	 */
+	private async pollWithContext(
+		chatId: ChatId,
+		context: {
+			coderUsername: string;
+			chatUrl: string;
+			atCreation?: CoderChat;
+		},
+		options?: { requireNonTerminalFirst?: boolean },
+	): Promise<CoderChat> {
+		try {
+			return await this.waitForTerminal(chatId, options);
+		} catch (err) {
+			if (err instanceof ActionFailureError) {
+				if (!err.chat && context.atCreation) {
+					// chat is set in the constructor, so rebuild with the
+					// at-creation snapshot, then carry the decoration over.
+					const rewrapped = new ActionFailureError(
+						err.kind,
+						err.message,
+						context.atCreation,
+						{ cause: err.cause, chatId },
+					);
+					rewrapped.coderUsername = context.coderUsername;
+					rewrapped.chatUrl = context.chatUrl;
+					throw rewrapped;
+				}
+				err.coderUsername = context.coderUsername;
+				err.chatUrl = context.chatUrl;
+			}
+			throw err;
+		}
+	}
+
+	/**
 	 * Main action execution
 	 */
 	async run(): Promise<ActionOutputs> {
@@ -207,25 +427,41 @@ export class CoderAgentChatAction {
 			});
 			core.info("Message sent successfully");
 
-			// Fetch the full chat after the message so outputs are consistent
-			// with the create path. If the fetch fails, fall back to minimal
-			// outputs rather than failing the step, since the message has
-			// already been sent.
-			let chat: CoderChat | undefined;
-			try {
-				chat = await this.coder.getChat(chatId);
-				core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
-			} catch (error) {
-				core.warning(
-					`Failed to fetch chat after sending message; outputs will be minimal: ${error}`,
-				);
-			}
-
 			const chatUrl = this.generateChatUrl(chatId);
+
+			// wait=complete polls until terminal. requireNonTerminalFirst
+			// defends against TOCTOU when sending a follow-up to a chat
+			// already in a terminal status (e.g. waiting): the first poll
+			// may see the pre-message status before the agent transitions.
+			//
+			// wait=none does a best-effort one-shot fetch; on fetch failure
+			// log a warning and fall back to minimal outputs. The follow-up
+			// message is already on the wire.
+			let chat: CoderChat | undefined;
+			if (this.inputs.wait === "complete") {
+				core.info(
+					`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`,
+				);
+				chat = await this.pollWithContext(
+					chatId,
+					{ coderUsername, chatUrl },
+					{ requireNonTerminalFirst: true },
+				);
+				core.info(`Chat reached terminal status: ${chat.status}`);
+			} else {
+				try {
+					chat = await this.coder.getChat(chatId);
+					core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+				} catch (error) {
+					core.warning(
+						`Failed to fetch chat after sending message; outputs will be minimal: ${error}`,
+					);
+				}
+			}
 
 			if (this.inputs.commentOnIssue) {
 				core.info(
-					`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+					`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 				);
 				await this.commentOnIssue(
 					chatUrl,
@@ -262,9 +498,24 @@ export class CoderAgentChatAction {
 		const chatUrl = this.generateChatUrl(createdChat.id);
 		core.info(`Chat URL: ${chatUrl}`);
 
+		// Poll before commenting so wait=complete posts only after the
+		// chat reaches a terminal state. No mid-poll comment updates.
+		let finalChat = createdChat;
+		if (this.inputs.wait === "complete") {
+			core.info(
+				`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`,
+			);
+			finalChat = await this.pollWithContext(createdChat.id, {
+				coderUsername,
+				chatUrl,
+				atCreation: createdChat,
+			});
+			core.info(`Chat reached terminal status: ${finalChat.status}`);
+		}
+
 		if (this.inputs.commentOnIssue) {
 			core.info(
-				`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+				`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
 			);
 			await this.commentOnIssue(
 				chatUrl,
@@ -273,9 +524,9 @@ export class CoderAgentChatAction {
 				githubIssueNumber,
 			);
 		} else {
-			core.info("Skipping comment (commentOnIssue is false)");
+			core.info("Skipping comment on issue (commentOnIssue is false)");
 		}
 
-		return this.buildOutputs(coderUsername, createdChat, true);
+		return this.buildOutputs(coderUsername, finalChat, true);
 	}
 }

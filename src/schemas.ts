@@ -41,6 +41,18 @@ export const ActionInputsSchema = ActionInputsObjectSchema.refine(
 
 export type ActionInputs = z.infer<typeof ActionInputsSchema>;
 
+// Machine-readable kinds for the chat-error-kind output. Workflows
+// branch on this enum without parsing the human-readable message.
+export const ChatErrorKindSchema = z.enum([
+	"spend_exceeded",
+	"user_not_found",
+	"user_ambiguous",
+	"org_not_found",
+	"api_error",
+	"timeout",
+]);
+export type ChatErrorKind = z.infer<typeof ChatErrorKindSchema>;
+
 // Only the four core fields are guaranteed; the rest are populated
 // when the runtime path produces them.
 export const ActionOutputsSchema = z.object({
@@ -61,8 +73,9 @@ export const ActionOutputsSchema = z.object({
 	changedFiles: z.number().optional(),
 	headBranch: z.string().optional(),
 	baseBranch: z.string().optional(),
-	// Populated when the chat fails.
-	chatErrorKind: z.string().optional(),
+	// Set when a chat ends in error or the wait=complete poll loop
+	// times out.
+	chatErrorKind: ChatErrorKindSchema.optional(),
 	chatErrorMessage: z.string().optional(),
 });
 
