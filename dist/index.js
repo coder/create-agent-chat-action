@@ -22731,15 +22731,43 @@ var github = __toESM(require_github(), 1);
 
 // src/action.ts
 var core = __toESM(require_core(), 1);
+var defaultClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+};
+var POLL_INTERVAL_MS = 5000;
+var MAX_CONSECUTIVE_POLL_FAILURES = 3;
+var TERMINAL_STATUSES = new Set([
+  "waiting",
+  "completed",
+  "error"
+]);
+
+class ActionFailureError extends Error {
+  kind;
+  chat;
+  constructor(kind, message, chat, options) {
+    super(message, options?.cause ? { cause: options.cause } : undefined);
+    this.kind = kind;
+    this.chat = chat;
+    this.name = "ActionFailureError";
+    this.chatId = options?.chatId ?? chat?.id;
+  }
+  chatId;
+  coderUsername;
+  chatUrl;
+}
 
 class CoderAgentChatAction {
   coder;
   octokit;
   inputs;
-  constructor(coder, octokit, inputs) {
+  clock;
+  constructor(coder, octokit, inputs, clock = defaultClock) {
     this.coder = coder;
     this.octokit = octokit;
     this.inputs = inputs;
+    this.clock = clock;
   }
   parseGithubURL() {
     if (!this.inputs.githubURL) {
@@ -22788,9 +22816,6 @@ class CoderAgentChatAction {
     }
   }
   warnUnwiredInputs() {
-    if (this.inputs.wait === "complete") {
-      core.warning("`wait: complete` is declared but not yet implemented; " + "the action will return immediately.");
-    }
     if (this.inputs.idempotencyKey !== undefined) {
       core.warning("`idempotency-key` is declared but not yet implemented; " + "the action will always create a new chat.");
     }
@@ -22821,6 +22846,78 @@ class CoderAgentChatAction {
       chatErrorMessage: chat.last_error ?? undefined
     };
   }
+  async waitForTerminal(chatId, options = {}) {
+    const timeoutMs = this.inputs.waitTimeoutSeconds * 1000;
+    const startedAt = this.clock.now();
+    let latest;
+    let sawNonTerminal = !options.requireNonTerminalFirst;
+    let firstTerminal;
+    let consecutiveFailures = 0;
+    while (true) {
+      try {
+        latest = await this.coder.getChat(chatId);
+        consecutiveFailures = 0;
+      } catch (err) {
+        consecutiveFailures++;
+        const message = err instanceof Error ? err.message : String(err);
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          throw new ActionFailureError("api_error", `Polling chat ${chatId} failed after ${consecutiveFailures} attempts: ${message}`, undefined, { cause: err, chatId });
+        }
+        core.warning(`Poll ${consecutiveFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} for chat ${chatId} failed: ${message}`);
+      }
+      if (latest && consecutiveFailures === 0) {
+        core.info(`Chat status: ${latest.status}`);
+        const isTerminal = TERMINAL_STATUSES.has(latest.status);
+        if (isTerminal) {
+          if (sawNonTerminal) {
+            return this.throwOnChatError(latest);
+          }
+          if (firstTerminal === undefined) {
+            firstTerminal = latest.status;
+          } else if (latest.status !== firstTerminal) {
+            return this.throwOnChatError(latest);
+          }
+        } else {
+          sawNonTerminal = true;
+        }
+      }
+      const elapsedMs = this.clock.now() - startedAt;
+      if (elapsedMs >= timeoutMs) {
+        throw new ActionFailureError("timeout", this.timeoutMessage(chatId, latest, sawNonTerminal), latest, { chatId });
+      }
+      await this.clock.sleep(POLL_INTERVAL_MS);
+    }
+  }
+  timeoutMessage(chatId, latest, sawNonTerminal) {
+    if (!sawNonTerminal && latest) {
+      return `Chat ${chatId} remained in terminal status \`${latest.status}\` ` + `for the entire ${this.inputs.waitTimeoutSeconds}s wait window; ` + "the agent may not have processed the follow-up message.";
+    }
+    return `Timed out after ${this.inputs.waitTimeoutSeconds}s waiting for chat ${chatId} to reach a terminal status`;
+  }
+  throwOnChatError(chat) {
+    if (chat.status === "error") {
+      const message = chat.last_error || "Chat ended in error state";
+      throw new ActionFailureError("api_error", message, chat);
+    }
+    return chat;
+  }
+  async pollWithContext(chatId, context, options) {
+    try {
+      return await this.waitForTerminal(chatId, options);
+    } catch (err) {
+      if (err instanceof ActionFailureError) {
+        if (!err.chat && context.atCreation) {
+          const rewrapped = new ActionFailureError(err.kind, err.message, context.atCreation, { cause: err.cause, chatId });
+          rewrapped.coderUsername = context.coderUsername;
+          rewrapped.chatUrl = context.chatUrl;
+          throw rewrapped;
+        }
+        err.coderUsername = context.coderUsername;
+        err.chatUrl = context.chatUrl;
+      }
+      throw err;
+    }
+  }
   async run() {
     this.warnUnwiredInputs();
     let coderUsername;
@@ -22847,16 +22944,22 @@ class CoderAgentChatAction {
         model_config_id: this.inputs.modelConfigId
       });
       core.info("Message sent successfully");
-      let chat;
-      try {
-        chat = await this.coder.getChat(chatId);
-        core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
-      } catch (error2) {
-        core.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error2}`);
-      }
       const chatUrl2 = this.generateChatUrl(chatId);
+      let chat;
+      if (this.inputs.wait === "complete") {
+        core.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
+        chat = await this.pollWithContext(chatId, { coderUsername, chatUrl: chatUrl2 }, { requireNonTerminalFirst: true });
+        core.info(`Chat reached terminal status: ${chat.status}`);
+      } else {
+        try {
+          chat = await this.coder.getChat(chatId);
+          core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
+        } catch (error2) {
+          core.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error2}`);
+        }
+      }
       if (this.inputs.commentOnIssue) {
-        core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+        core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
         await this.commentOnIssue(chatUrl2, githubOrg, githubRepo, githubIssueNumber);
       }
       if (chat) {
@@ -22879,13 +22982,23 @@ class CoderAgentChatAction {
     core.info(`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
     const chatUrl = this.generateChatUrl(createdChat.id);
     core.info(`Chat URL: ${chatUrl}`);
+    let finalChat = createdChat;
+    if (this.inputs.wait === "complete") {
+      core.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
+      finalChat = await this.pollWithContext(createdChat.id, {
+        coderUsername,
+        chatUrl,
+        atCreation: createdChat
+      });
+      core.info(`Chat reached terminal status: ${finalChat.status}`);
+    }
     if (this.inputs.commentOnIssue) {
-      core.info(`Commenting on ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+      core.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
       await this.commentOnIssue(chatUrl, githubOrg, githubRepo, githubIssueNumber);
     } else {
-      core.info("Skipping comment (commentOnIssue is false)");
+      core.info("Skipping comment on issue (commentOnIssue is false)");
     }
-    return this.buildOutputs(coderUsername, createdChat, true);
+    return this.buildOutputs(coderUsername, finalChat, true);
   }
 }
 
@@ -27050,6 +27163,22 @@ function setActionOutputs(outputs) {
     core2.setOutput(name, stringified);
   }
 }
+function setFailureOutputs(error2) {
+  core2.setOutput("chat-error-kind", error2.kind);
+  core2.setOutput("chat-error-message", error2.message);
+  if (error2.chatId) {
+    core2.setOutput("chat-id", error2.chatId);
+  }
+  if (error2.chat) {
+    core2.setOutput("chat-status", error2.chat.status);
+  }
+  if (error2.chatUrl) {
+    core2.setOutput("chat-url", error2.chatUrl);
+  }
+  if (error2.coderUsername) {
+    core2.setOutput("coder-username", error2.coderUsername);
+  }
+}
 
 // src/schemas.ts
 var DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
@@ -27074,6 +27203,14 @@ var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.github
   message: "Cannot set both github-user-id and coder-username; choose one.",
   path: ["coderUsername"]
 });
+var ChatErrorKindSchema = exports_external.enum([
+  "spend_exceeded",
+  "user_not_found",
+  "user_ambiguous",
+  "org_not_found",
+  "api_error",
+  "timeout"
+]);
 var ActionOutputsSchema = exports_external.object({
   coderUsername: exports_external.string(),
   chatId: exports_external.string().uuid(),
@@ -27091,7 +27228,7 @@ var ActionOutputsSchema = exports_external.object({
   changedFiles: exports_external.number().optional(),
   headBranch: exports_external.string().optional(),
   baseBranch: exports_external.string().optional(),
-  chatErrorKind: exports_external.string().optional(),
+  chatErrorKind: ChatErrorKindSchema.optional(),
   chatErrorMessage: exports_external.string().optional()
 });
 
@@ -27129,7 +27266,11 @@ async function main() {
     core3.debug("Action completed successfully");
     core3.debug(`Outputs: ${JSON.stringify(outputs, null, 2)}`);
   } catch (error2) {
-    if (error2 instanceof Error) {
+    if (error2 instanceof ActionFailureError) {
+      setFailureOutputs(error2);
+      core3.setFailed(error2.message);
+      console.error("Action failed:", error2);
+    } else if (error2 instanceof Error) {
       core3.setFailed(error2.message);
       console.error("Action failed:", error2);
       if (error2.stack) {
