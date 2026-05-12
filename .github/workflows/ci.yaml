@@ -28,7 +28,7 @@ jobs:
         run: make build
 
       - name: Format check
-        run: make fmt
+        run: make fmt-check
 
       - name: Check unstaged changes
         run: ./check_unstaged.sh

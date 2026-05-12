@@ -1,4 +1,4 @@
-.PHONY: fmt lint test clean deps all
+.PHONY: fmt fmt-check lint test clean deps all
 
 TS_FILES := $(shell find src -name "*.ts" -type f ! -name "*.test.ts")
 
@@ -6,6 +6,9 @@ all: build fmt lint test
 
 fmt:
 	bun run format
+
+fmt-check:
+	bun run format:check
 
 lint:
 	bun run lint
