@@ -104,6 +104,80 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
+		test("rejects URL with extra path segments after the issue number", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/issues/123/extra",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			expect(() => action.parseGithubURL()).toThrowError("Invalid GitHub URL");
+		});
+
+		test("accepts a trailing slash after the issue number", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/issues/123/",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			const result = action.parseGithubURL();
+
+			expect(result).toEqual({
+				githubOrg: "owner",
+				githubRepo: "repo",
+				githubIssueNumber: 123,
+			});
+		});
+
+		test("accepts a URL with a comment fragment", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/issues/123#issuecomment-456",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			const result = action.parseGithubURL();
+
+			expect(result).toEqual({
+				githubOrg: "owner",
+				githubRepo: "repo",
+				githubIssueNumber: 123,
+			});
+		});
+
+		test("accepts a URL with a query string", () => {
+			const inputs = createMockInputs({
+				githubURL: "https://github.com/owner/repo/pull/42?ref=main",
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				createMockContext(),
+			);
+
+			const result = action.parseGithubURL();
+
+			expect(result).toEqual({
+				githubOrg: "owner",
+				githubRepo: "repo",
+				githubIssueNumber: 42,
+			});
+		});
+
 		test("handles non-github.com URL", () => {
 			const inputs = createMockInputs({
 				githubURL: "https://code.acme.com/owner/repo/issues/123",
@@ -594,6 +668,28 @@ describe("CoderAgentChatAction", () => {
 		expect(parsedResult.chatStatus).toBe("running");
 		expect(parsedResult.chatTitle).toBe("Test chat");
 		expect(parsedResult.workspaceId).toBe(mockChat.workspace_id ?? undefined);
+	});
+
+	test("rejects a malformed existing-chat-id at runtime (defense in depth past the schema)", async () => {
+		coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
+
+		// `createMockInputs` casts to `ActionInputs` without running
+		// `ActionInputsSchema`. That lets this test prove the
+		// `ChatIdSchema.parse` in the existing-chat branch refuses non-UUID
+		// input even if a future caller skips the upstream schema parse.
+		const inputs = createMockInputs({
+			githubUserID: 12345,
+			existingChatId: "not-a-uuid",
+		});
+		const action = new CoderAgentChatAction(
+			coderClient,
+			octokit as unknown as Octokit,
+			inputs,
+			createMockContext(),
+		);
+
+		await expect(action.run()).rejects.toThrow();
+		expect(coderClient.mockCreateChatMessage).not.toHaveBeenCalled();
 	});
 
 	test("falls back to minimal outputs when getChat fails after follow-up", async () => {

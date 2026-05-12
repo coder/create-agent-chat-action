@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 import type { getOctokit } from "@actions/github";
-import { CoderAPIError } from "./coder-client";
+import { ChatIdSchema, CoderAPIError } from "./coder-client";
 import type {
 	ChatId,
 	ChatStatus,
@@ -950,7 +950,12 @@ export class CoderAgentChatAction {
 			core.info(
 				`Sending message to existing chat: ${this.inputs.existingChatId}`,
 			);
-			const chatId = this.inputs.existingChatId as ChatId;
+			// Narrow the already-validated string to the branded `ChatId` via
+			// `.parse()` instead of the previous unsafe `as ChatId` cast.
+			// `ActionInputsSchema` validates `existingChatId` as a UUID up in
+			// `index.ts`, so `.parse()` here is the branding step (and a
+			// defense-in-depth check if a future caller bypasses that schema).
+			const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
 
 			await this.coder.createChatMessage(chatId, {
 				content: [{ type: "text", text: this.inputs.chatPrompt }],

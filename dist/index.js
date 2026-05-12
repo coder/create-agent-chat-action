@@ -26728,6 +26728,11 @@ var coerce = {
   date: (arg) => ZodDate.create({ ...arg, coerce: true })
 };
 var NEVER = INVALID;
+// src/url.ts
+function normalizeBaseUrl(coderURL) {
+  return coderURL.split(/[?#]/)[0].replace(/\/$/, "");
+}
+
 // src/coder-client.ts
 var DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 
@@ -26735,7 +26740,7 @@ class RealCoderClient {
   serverURL;
   headers;
   constructor(serverURL, apiToken) {
-    this.serverURL = serverURL;
+    this.serverURL = normalizeBaseUrl(serverURL);
     this.headers = {
       "Coder-Session-Token": apiToken,
       "Content-Type": "application/json"
@@ -26965,7 +26970,7 @@ function sanitizeLabelKey(input) {
 
 // src/comment.ts
 var core = __toESM(require_core(), 1);
-var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)/;
+var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/;
 var COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
 var COMMENT_MARKER_SUFFIX = " -->";
 function buildCommentMarker(key) {
@@ -27218,9 +27223,6 @@ async function upsertCommentByMarker(args) {
     predicate: (comment) => comment.body?.includes(args.marker) ?? false,
     logLabel: "failure comment"
   });
-}
-function normalizeBaseUrl(coderURL) {
-  return coderURL.split(/[?#]/)[0].replace(/\/$/, "");
 }
 function buildDeploymentChatsUrl(coderURL) {
   return `${normalizeBaseUrl(coderURL)}/chats`;
@@ -27612,7 +27614,7 @@ class CoderAgentChatAction {
     core2.info(`Coder username: ${coderUsername}`);
     if (this.inputs.existingChatId) {
       core2.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
-      const chatId = this.inputs.existingChatId;
+      const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
       await this.coder.createChatMessage(chatId, {
         content: [{ type: "text", text: this.inputs.chatPrompt }],
         model_config_id: this.inputs.modelConfigId
@@ -27832,7 +27834,7 @@ var ActionInputsObjectSchema = exports_external.object({
   coderURL: exports_external.string().url(),
   coderOrganization: exports_external.string().min(1).optional(),
   githubURL: exports_external.string().url(),
-  githubToken: exports_external.string(),
+  githubToken: exports_external.string().min(1),
   githubUserID: exports_external.number().int().positive().optional(),
   coderUsername: exports_external.string().min(1).optional(),
   workspaceId: exports_external.string().uuid().optional(),
@@ -27930,7 +27932,6 @@ async function main() {
       core4.setFailed("Unknown error occurred");
       console.error("Unknown error:", error3);
     }
-    process.exit(1);
   }
 }
 if (require.main == module) {

@@ -126,6 +126,14 @@ describe("ActionInputsSchema", () => {
 			expect(() => ActionInputsSchema.parse(input)).toThrow();
 		});
 
+		test("rejects empty string for githubToken", () => {
+			const input = {
+				...actionInputValid,
+				githubToken: "",
+			};
+			expect(() => ActionInputsSchema.parse(input)).toThrow();
+		});
+
 		test("rejects empty strings for required fields", () => {
 			const input = {
 				...actionInputValid,

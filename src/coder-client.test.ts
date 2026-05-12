@@ -169,6 +169,22 @@ describe("CoderClient", () => {
 	});
 
 	describe("createChat", () => {
+		test("normalizes a trailing slash on serverURL so the API URL has no double slash", async () => {
+			const clientWithSlash = new RealCoderClient(
+				"https://coder.test/",
+				"test-token",
+			);
+			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
+			await clientWithSlash.createChat({
+				organization_id: mockOrganization.id,
+				content: [{ type: "text", text: "Test" }],
+			});
+			expect(mockFetch).toHaveBeenCalledWith(
+				"https://coder.test/api/experimental/chats",
+				expect.anything(),
+			);
+		});
+
 		test("creates chat successfully", async () => {
 			mockFetch.mockResolvedValueOnce(createMockResponse(mockChat));
 			const result = await client.createChat({

@@ -14,7 +14,7 @@ const ActionInputsObjectSchema = z.object({
 	coderURL: z.string().url(),
 	coderOrganization: z.string().min(1).optional(),
 	githubURL: z.string().url(),
-	githubToken: z.string(),
+	githubToken: z.string().min(1),
 	githubUserID: z.number().int().positive().optional(),
 	coderUsername: z.string().min(1).optional(),
 	workspaceId: z.string().uuid().optional(),
