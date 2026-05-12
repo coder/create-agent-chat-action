@@ -26706,6 +26706,8 @@ var coerce = {
 };
 var NEVER = INVALID;
 // src/coder-client.ts
+var DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
 class RealCoderClient {
   serverURL;
   headers;
@@ -26718,10 +26720,19 @@ class RealCoderClient {
   }
   async request(endpoint, options) {
     const url = `${this.serverURL}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: { ...this.headers, ...options?.headers }
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: { ...this.headers, ...options?.headers },
+        signal: options?.signal ?? AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS)
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new CoderAPIError(`Request to ${endpoint} timed out after ${DEFAULT_REQUEST_TIMEOUT_MS}ms`, 0);
+      }
+      throw err;
+    }
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new CoderAPIError(`Coder API error: ${response.statusText}`, response.status, body);
@@ -26736,7 +26747,7 @@ class RealCoderClient {
       throw new CoderAPIError("GitHub user ID cannot be undefined", 400);
     }
     if (githubUserId === 0) {
-      throw "GitHub user ID cannot be 0";
+      throw new CoderAPIError("GitHub user ID cannot be 0", 400);
     }
     const filter = `github_com_user_id:${githubUserId}`;
     const endpoint = `/api/v2/users?q=${encodeURIComponent(filter)}`;
