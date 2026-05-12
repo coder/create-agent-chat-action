@@ -110,13 +110,13 @@ export class RealCoderClient implements CoderClient {
 		}
 		// coderd's GetUsers SQL hardcodes `users.deleted = false`, so the
 		// response is already filtered server-side. The client-side
-		// `u.deleted !== true` pass below is forward-compatible defense in
-		// depth in case `codersdk.User` later starts serializing `deleted`.
+		// filter below is forward-compatible defense in depth in case
+		// `codersdk.User` later starts serializing `deleted`.
 		const filter = `github_com_user_id:${githubUserId}`;
 		const endpoint = `/api/v2/users?q=${encodeURIComponent(filter)}`;
 		const response = await this.request<unknown[]>(endpoint);
 		const userList = CoderSDKGetUsersResponseSchema.parse(response);
-		const liveUsers = userList.users.filter((u) => u.deleted !== true);
+		const liveUsers = userList.users.filter((u) => !u.deleted);
 		if (liveUsers.length === 0) {
 			throw new CoderAPIError(
 				`No Coder user found with GitHub user ID ${githubUserId}`,

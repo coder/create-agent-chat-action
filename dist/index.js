@@ -26753,7 +26753,7 @@ class RealCoderClient {
     const endpoint = `/api/v2/users?q=${encodeURIComponent(filter)}`;
     const response = await this.request(endpoint);
     const userList = CoderSDKGetUsersResponseSchema.parse(response);
-    const liveUsers = userList.users.filter((u) => u.deleted !== true);
+    const liveUsers = userList.users.filter((u) => !u.deleted);
     if (liveUsers.length === 0) {
       throw new CoderAPIError(`No Coder user found with GitHub user ID ${githubUserId}`, 404, undefined, "user_not_found");
     }
