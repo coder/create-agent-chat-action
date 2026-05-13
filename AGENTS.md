@@ -1,8 +1,8 @@
-# AGENTS.md - AI Agent Guide for create-agent-chat-action
+# AGENTS.md - AI Agent Guide for agents-chat-action
 
 ## Repository Overview
 
-**Purpose**: GitHub Action that creates and manages Coder Agent Chats for GitHub users with automated issue commenting support.
+**Purpose**: GitHub Action that creates and manages Coder Agents chats for GitHub users with automated issue commenting support.
 
 **Key Difference from create-task-action**: This action targets the Coder Agents Chat API (`/api/experimental/chats`) instead of the Tasks API. Agents purposefully does NOT expose template selection — it either auto-provisions a workspace or uses an existing one.
 
@@ -35,7 +35,9 @@ CoderAgentChatAction.run() (action.ts)
 ├─ Parse GitHub issue URL
 ├─ Check if existing-chat-id provided
 │  ├─ YES: Send message to existing chat
-│  └─ NO: Create new chat (Agents auto-provisions workspace)
+│  └─ NO: Look up existing chat by reuse labels (unless force-new-chat)
+│         ├─ Match: Send message to reused chat
+│         └─ No match: Create new chat (Agents auto-provisions workspace)
 └─ Comment on GitHub issue with chat URL
 ```
 

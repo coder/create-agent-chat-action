@@ -1,13 +1,25 @@
 /**
+ * Action-owned chat-label keys, used by both the reuse lookup
+ * (`findReuseMatch`) and the chat-creation labels (`buildChatLabels`).
+ * Both call sites must stay in sync; this object is the single source
+ * of truth so a developer cannot add a label key to one without the
+ * other.
+ */
+export const ACTION_LABEL_KEYS = {
+	marker: "coder-agents-chat-action",
+	target: "gh-target",
+	user: "coder-agents-chat-action-user",
+	workflow: "coder-agents-chat-action-workflow",
+} as const;
+
+/**
  * Reserved label keys on chats this action creates. A sanitized
  * `idempotency-key` matching one of these is rejected upstream so the
  * user input cannot overwrite an action-owned label.
  */
-export const RESERVED_LABEL_KEYS: ReadonlySet<string> = new Set([
-	"coder-agent-chat-action",
-	"gh-target",
-	"coder-agent-chat-action-user",
-]);
+export const RESERVED_LABEL_KEYS: ReadonlySet<string> = new Set(
+	Object.values(ACTION_LABEL_KEYS),
+);
 
 /**
  * Coerce an arbitrary string into a chat-label key the platform accepts.

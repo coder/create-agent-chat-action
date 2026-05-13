@@ -9,7 +9,11 @@ import type {
 	CoderSDKUser,
 	CreateChatRequest,
 } from "./coder-client";
-import { RESERVED_LABEL_KEYS, sanitizeLabelKey } from "./sanitize-label-key";
+import {
+	ACTION_LABEL_KEYS,
+	RESERVED_LABEL_KEYS,
+	sanitizeLabelKey,
+} from "./sanitize-label-key";
 import {
 	buildCommentMarker,
 	buildDeploymentChatsUrl,
@@ -623,8 +627,7 @@ export class CoderAgentChatAction {
 		if (this.inputs.coderUsername) {
 			core.info(`Using provided Coder username: ${this.inputs.coderUsername}`);
 			// Fetch the full user so `user.id` is available downstream for
-			// the `coder-agent-chat-action-user` per-user idempotency scope
-			// (S7).
+			// the `coder-agents-chat-action-user` per-user reuse scope.
 			let coderUser: CoderSDKUser;
 			try {
 				coderUser = await this.coder.getCoderUserByUsername(
@@ -956,76 +959,23 @@ export class CoderAgentChatAction {
 			// `index.ts`, so `.parse()` here is the branding step (and a
 			// defense-in-depth check if a future caller bypasses that schema).
 			const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
-
-			await this.coder.createChatMessage(chatId, {
-				content: [{ type: "text", text: this.inputs.chatPrompt }],
-				model_config_id: this.inputs.modelConfigId,
-			});
-			core.info("Message sent successfully");
-
-			const chatUrl = this.generateChatUrl(chatId);
-
-			// wait=complete polls until terminal. requireNonTerminalFirst
-			// defends against TOCTOU when sending a follow-up to a chat
-			// already in a terminal status (e.g. waiting): the first poll
-			// may see the pre-message status before the agent transitions.
-			//
-			// wait=none does a best-effort one-shot fetch; on fetch failure
-			// log a warning and fall back to minimal outputs. The follow-up
-			// message is already on the wire.
-			let chat: CoderChat | undefined;
-			if (this.inputs.wait === "complete") {
-				core.info(
-					`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`,
-				);
-				chat = await this.pollWithContext(
-					chatId,
-					{ coderUsername, chatUrl },
-					{ requireNonTerminalFirst: true },
-				);
-				core.info(`Chat reached terminal status: ${chat.status}`);
-			} else {
-				try {
-					chat = await this.coder.getChat(chatId);
-					core.info(`Chat status: ${chat.status}, title: ${chat.title}`);
-				} catch (error) {
-					core.warning(
-						`Failed to fetch chat after sending message; outputs will be minimal: ${error}`,
-					);
-				}
-			}
-
-			if (this.inputs.commentOnIssue) {
-				core.info(
-					`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
-				);
-				await this.commentOnIssue({
-					chatUrl,
-					owner: githubOrg,
-					repo: githubRepo,
-					issueNumber: githubIssueNumber,
-					chatCreated: false,
-					chat,
-				});
-			}
-
-			if (chat) {
-				return this.buildOutputs(coderUsername, chat, false);
-			}
-			return {
+			return this.runFollowUp({
 				coderUsername,
 				chatId,
-				chatUrl,
-				chatCreated: false,
-			};
+				preMessageChat: undefined,
+				githubOrg,
+				githubRepo,
+				githubIssueNumber,
+			});
 		}
 
-		// Idempotency by label: if `idempotency-key` is set, look up an
-		// existing non-archived chat scoped to this `gh-target` and the
-		// resolved Coder user, and reuse it before creating a duplicate.
-		// The lookup ANDs the sanitized key with `gh-target` and
-		// `coder-agent-chat-action-user` so a shared `idempotency-key`
-		// across targets or users does not cross-contaminate.
+		// Chat reuse: the action reuses the most recent non-archived chat
+		// scoped to this `gh-target`, the resolved Coder user, and the
+		// workflow name (when `GITHUB_WORKFLOW` is set), so re-runs and
+		// follow-up triggers converge on one chat per target/user/workflow.
+		// `force-new-chat` skips the lookup; `idempotency-key` shards
+		// further so two workflow runs with the same scope can maintain
+		// distinct chats.
 		const sanitizedKey = this.inputs.idempotencyKey
 			? sanitizeLabelKey(this.inputs.idempotencyKey)
 			: undefined;
@@ -1037,51 +987,27 @@ export class CoderAgentChatAction {
 			);
 		}
 		const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
+		const workflow = process.env.GITHUB_WORKFLOW || undefined;
 
-		if (sanitizedKey) {
-			const follow = await this.findIdempotentMatch(
-				sanitizedKey,
+		if (this.inputs.forceNewChat) {
+			core.info("force-new-chat=true: skipping chat-reuse lookup");
+		} else {
+			const follow = await this.findReuseMatch(
 				ghTarget,
 				resolvedUser.id,
+				workflow,
+				sanitizedKey,
 			);
 			if (follow) {
-				core.info(`Reusing existing chat by idempotency label: ${follow.id}`);
-				await this.coder.createChatMessage(follow.id, {
-					content: [{ type: "text", text: this.inputs.chatPrompt }],
-					model_config_id: this.inputs.modelConfigId,
+				core.info(`Reusing existing chat: ${follow.id}`);
+				return this.runFollowUp({
+					coderUsername,
+					chatId: follow.id,
+					preMessageChat: follow,
+					githubOrg,
+					githubRepo,
+					githubIssueNumber,
 				});
-				core.info("Message sent successfully");
-				const chatUrl = this.generateChatUrl(follow.id);
-
-				// Refresh so outputs reflect post-message state. The message
-				// already succeeded; on fetch failure, fall back to the
-				// pre-message chat rather than failing the run.
-				let refreshed: CoderChat = follow;
-				try {
-					const fetched = await this.coder.getChat(follow.id);
-					core.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
-					refreshed = fetched;
-				} catch (error) {
-					core.warning(
-						`Failed to fetch chat after sending message; outputs reflect pre-message state: ${error}`,
-					);
-				}
-
-				if (this.inputs.commentOnIssue) {
-					core.info(
-						`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
-					);
-					await this.commentOnIssue({
-						chatUrl,
-						owner: githubOrg,
-						repo: githubRepo,
-						issueNumber: githubIssueNumber,
-						chatCreated: false,
-						chat: refreshed,
-					});
-				}
-
-				return this.buildOutputs(coderUsername, refreshed, false);
 			}
 		}
 
@@ -1089,7 +1015,7 @@ export class CoderAgentChatAction {
 		// existing-chat path inherits the chat's org via `createChatMessage`,
 		// and resolving eagerly would fire an extra API call and a spurious
 		// `org_not_found` failure for users with no org memberships.
-		core.info("Creating new agent chat...");
+		core.info("Creating new agents chat...");
 		const organizationID = await this.resolveOrganizationID(
 			coderUsername,
 			resolvedUser,
@@ -1099,18 +1025,17 @@ export class CoderAgentChatAction {
 			content: [{ type: "text", text: this.inputs.chatPrompt }],
 			workspace_id: this.inputs.workspaceId,
 			model_config_id: this.inputs.modelConfigId,
-		};
-		if (sanitizedKey) {
-			req.labels = this.buildIdempotencyLabels(
-				sanitizedKey,
+			labels: this.buildChatLabels(
 				ghTarget,
 				resolvedUser.id,
-			);
-		}
+				workflow,
+				sanitizedKey,
+			),
+		};
 
 		const createdChat = await this.coder.createChat(req);
 		core.info(
-			`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`,
+			`Agents chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`,
 		);
 
 		const chatUrl = this.generateChatUrl(createdChat.id);
@@ -1151,27 +1076,131 @@ export class CoderAgentChatAction {
 	}
 
 	/**
-	 * Most-recent non-archived match for this key+target+user, or undefined.
-	 * Warns on multiple matches (concurrent triggers can race).
+	 * Send `chat-prompt` as a follow-up message to an existing chat and
+	 * complete the post-message flow (poll under `wait: complete`, refresh
+	 * under `wait: none`, comment, build outputs). Used by both the
+	 * `existing-chat-id` path (no pre-message snapshot, falls back to a
+	 * minimal outputs shim on refresh failure) and the chat-reuse path
+	 * (the matched chat is the pre-message snapshot, so refresh failure
+	 * preserves the matched chat's state).
+	 *
+	 * Under `wait: complete`, both paths poll with `requireNonTerminalFirst`
+	 * to defend against TOCTOU when the chat was already in a terminal
+	 * status when the follow-up was sent: the first poll may still see the
+	 * pre-message status before the agent transitions.
 	 */
-	private async findIdempotentMatch(
-		sanitizedKey: string,
+	private async runFollowUp(args: {
+		coderUsername: string;
+		chatId: ChatId;
+		preMessageChat: CoderChat | undefined;
+		githubOrg: string;
+		githubRepo: string;
+		githubIssueNumber: number;
+	}): Promise<ActionOutputs> {
+		const {
+			coderUsername,
+			chatId,
+			preMessageChat,
+			githubOrg,
+			githubRepo,
+			githubIssueNumber,
+		} = args;
+
+		await this.coder.createChatMessage(chatId, {
+			content: [{ type: "text", text: this.inputs.chatPrompt }],
+			model_config_id: this.inputs.modelConfigId,
+		});
+		core.info("Message sent successfully");
+
+		const chatUrl = this.generateChatUrl(chatId);
+
+		let chat: CoderChat | undefined = preMessageChat;
+		if (this.inputs.wait === "complete") {
+			core.info(
+				`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`,
+			);
+			chat = await this.pollWithContext(
+				chatId,
+				{ coderUsername, chatUrl },
+				{ requireNonTerminalFirst: true },
+			);
+			core.info(`Chat reached terminal status: ${chat.status}`);
+		} else {
+			try {
+				const fetched = await this.coder.getChat(chatId);
+				core.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
+				chat = fetched;
+			} catch (error) {
+				core.warning(
+					preMessageChat
+						? `Failed to fetch chat after sending message; outputs reflect pre-message state: ${error}`
+						: `Failed to fetch chat after sending message; outputs will be minimal: ${error}`,
+				);
+			}
+		}
+
+		if (this.inputs.commentOnIssue) {
+			core.info(
+				`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`,
+			);
+			await this.commentOnIssue({
+				chatUrl,
+				owner: githubOrg,
+				repo: githubRepo,
+				issueNumber: githubIssueNumber,
+				chatCreated: false,
+				chat,
+			});
+		}
+
+		if (chat) {
+			return this.buildOutputs(coderUsername, chat, false);
+		}
+		return {
+			coderUsername,
+			chatId,
+			chatUrl,
+			chatCreated: false,
+		};
+	}
+
+	/**
+	 * Most-recent non-archived chat matching the reuse scope, or undefined.
+	 * Scope: gh-target + coder-user; workflow when GITHUB_WORKFLOW is set;
+	 * sanitized idempotency-key when set. Warns on multiple matches.
+	 *
+	 * The label set must stay in sync with `buildChatLabels`: a key the
+	 * lookup queries but the create branch doesn't write (or vice versa)
+	 * breaks reuse silently. `ACTION_LABEL_KEYS` is the shared source of
+	 * truth.
+	 */
+	private async findReuseMatch(
 		ghTarget: string,
 		coderUserId: string,
+		workflow: string | undefined,
+		sanitizedKey: string | undefined,
 	): Promise<CoderChat | undefined> {
-		const keyLabel = `${sanitizedKey}:true`;
-		const targetLabel = `gh-target:${ghTarget}`;
-		const userLabel = `coder-agent-chat-action-user:${coderUserId}`;
+		const labels: string[] = [
+			`${ACTION_LABEL_KEYS.marker}:true`,
+			`${ACTION_LABEL_KEYS.target}:${ghTarget}`,
+			`${ACTION_LABEL_KEYS.user}:${coderUserId}`,
+		];
+		if (workflow) {
+			labels.push(`${ACTION_LABEL_KEYS.workflow}:${workflow}`);
+		}
+		if (sanitizedKey) {
+			labels.push(`${sanitizedKey}:true`);
+		}
 		let chats: CoderChat[];
 		try {
 			chats = await this.coder.listChats({
-				label: [keyLabel, targetLabel, userLabel],
+				label: labels,
 				archived: false,
 			});
 		} catch (err) {
 			const inner = err instanceof Error ? err.message : String(err);
 			throw new Error(
-				`Failed to look up chats by idempotency labels [${keyLabel}, ${targetLabel}, ${userLabel}]: ${inner}`,
+				`Failed to look up chats by reuse labels [${labels.join(", ")}]: ${inner}`,
 				{ cause: err },
 			);
 		}
@@ -1194,7 +1223,7 @@ export class CoderAgentChatAction {
 				.map((c) => c.id)
 				.join(", ");
 			core.warning(
-				`Multiple non-archived chats matched idempotency-key=${this.inputs.idempotencyKey} for ${ghTarget}. ` +
+				`Multiple non-archived chats matched reuse scope for ${ghTarget}. ` +
 					`Reusing the most recent (${live[0].id}) and ignoring: ${ignored}. ` +
 					"Concurrent triggers can race; subsequent runs converge on the " +
 					"most recent match.",
@@ -1203,14 +1232,25 @@ export class CoderAgentChatAction {
 		return live[0];
 	}
 
-	private buildIdempotencyLabels(
-		sanitizedKey: string,
+	/**
+	 * Labels written on chat creation. Three are always written; the
+	 * workflow label is added when GITHUB_WORKFLOW is set; the sanitized
+	 * idempotency-key is added when set.
+	 *
+	 * The label set must stay in sync with `findReuseMatch`: a key the
+	 * create branch writes but the lookup doesn't query (or vice versa)
+	 * breaks reuse silently. `ACTION_LABEL_KEYS` is the shared source of
+	 * truth.
+	 */
+	private buildChatLabels(
 		ghTarget: string,
 		coderUserId: string,
+		workflow: string | undefined,
+		sanitizedKey: string | undefined,
 	): Record<string, string> {
 		// Defense in depth: `runInner` rejects collisions before any API
 		// call; this guards direct callers.
-		if (RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+		if (sanitizedKey && RESERVED_LABEL_KEYS.has(sanitizedKey)) {
 			throw new Error(
 				`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` +
 					`Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` +
@@ -1218,11 +1258,16 @@ export class CoderAgentChatAction {
 			);
 		}
 		const labels: Record<string, string> = {
-			"coder-agent-chat-action": "true",
-			"gh-target": ghTarget,
-			"coder-agent-chat-action-user": coderUserId,
+			[ACTION_LABEL_KEYS.marker]: "true",
+			[ACTION_LABEL_KEYS.target]: ghTarget,
+			[ACTION_LABEL_KEYS.user]: coderUserId,
 		};
-		labels[sanitizedKey] = "true";
+		if (workflow) {
+			labels[ACTION_LABEL_KEYS.workflow] = workflow;
+		}
+		if (sanitizedKey) {
+			labels[sanitizedKey] = "true";
+		}
 		return labels;
 	}
 }

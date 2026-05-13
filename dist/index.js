@@ -26955,11 +26955,13 @@ class CoderAPIError extends Error {
 }
 
 // src/sanitize-label-key.ts
-var RESERVED_LABEL_KEYS = new Set([
-  "coder-agent-chat-action",
-  "gh-target",
-  "coder-agent-chat-action-user"
-]);
+var ACTION_LABEL_KEYS = {
+  marker: "coder-agents-chat-action",
+  target: "gh-target",
+  user: "coder-agents-chat-action-user",
+  workflow: "coder-agents-chat-action-workflow"
+};
+var RESERVED_LABEL_KEYS = new Set(Object.values(ACTION_LABEL_KEYS));
 function sanitizeLabelKey(input) {
   const lowered = input.toLowerCase();
   const replaced = lowered.replace(/[^a-z0-9._/-]/g, "-");
@@ -26971,7 +26973,7 @@ function sanitizeLabelKey(input) {
 // src/comment.ts
 var core = __toESM(require_core(), 1);
 var GITHUB_URL_REGEX = /([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/;
-var COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
+var COMMENT_MARKER_PREFIX = "<!-- coder-agents-chat-action:";
 var COMMENT_MARKER_SUFFIX = " -->";
 function buildCommentMarker(key) {
   return `${COMMENT_MARKER_PREFIX}${key}${COMMENT_MARKER_SUFFIX}`;
@@ -27072,7 +27074,7 @@ function formatMicrosAsDollars(micros) {
 }
 function buildFailureCommentBody(detail, ctx) {
   const runPhase = isRunPhaseFailure(detail.kind, ctx);
-  const heading = runPhase ? "**Coder Agent Chat: failed**" : "**Coder Agent Chat: failed to start**";
+  const heading = runPhase ? "**Coder Agents Chat: failed**" : "**Coder Agents Chat: failed to start**";
   const lines = [heading, ""];
   const linkLine = ctx.chatUrl ? `View the chat in the Coder deployment: ${ctx.chatUrl}` : `View chats in the Coder deployment: ${ctx.chatsUrl}`;
   switch (detail.kind) {
@@ -27133,15 +27135,15 @@ function apiErrorPhrase(runPhase, ctx) {
 function buildSuccessCommentBody(ctx) {
   const lines = [];
   if (ctx.waitMode === "complete" && ctx.chatStatus === "waiting") {
-    lines.push("**Coder Agent Chat: agent finished or is awaiting input**");
+    lines.push("**Coder Agents Chat: agent finished or is awaiting input**");
   } else if (ctx.waitMode === "complete" && ctx.chatStatus !== undefined) {
-    lines.push(`**Coder Agent Chat: ${ctx.chatStatus}**`);
+    lines.push(`**Coder Agents Chat: ${ctx.chatStatus}**`);
   } else if (ctx.waitMode === "complete") {
-    lines.push("**Coder Agent Chat: complete**");
+    lines.push("**Coder Agents Chat: complete**");
   } else if (ctx.chatCreated) {
-    lines.push("**Coder Agent Chat: created**");
+    lines.push("**Coder Agents Chat: created**");
   } else {
-    lines.push("**Coder Agent Chat: message sent**");
+    lines.push("**Coder Agents Chat: message sent**");
   }
   lines.push("", `Chat: ${ctx.chatUrl}`);
   if (ctx.chatStatus !== undefined) {
@@ -27615,96 +27617,48 @@ class CoderAgentChatAction {
     if (this.inputs.existingChatId) {
       core2.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
       const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
-      await this.coder.createChatMessage(chatId, {
-        content: [{ type: "text", text: this.inputs.chatPrompt }],
-        model_config_id: this.inputs.modelConfigId
-      });
-      core2.info("Message sent successfully");
-      const chatUrl2 = this.generateChatUrl(chatId);
-      let chat;
-      if (this.inputs.wait === "complete") {
-        core2.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
-        chat = await this.pollWithContext(chatId, { coderUsername, chatUrl: chatUrl2 }, { requireNonTerminalFirst: true });
-        core2.info(`Chat reached terminal status: ${chat.status}`);
-      } else {
-        try {
-          chat = await this.coder.getChat(chatId);
-          core2.info(`Chat status: ${chat.status}, title: ${chat.title}`);
-        } catch (error3) {
-          core2.warning(`Failed to fetch chat after sending message; outputs will be minimal: ${error3}`);
-        }
-      }
-      if (this.inputs.commentOnIssue) {
-        core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
-        await this.commentOnIssue({
-          chatUrl: chatUrl2,
-          owner: githubOrg,
-          repo: githubRepo,
-          issueNumber: githubIssueNumber,
-          chatCreated: false,
-          chat
-        });
-      }
-      if (chat) {
-        return this.buildOutputs(coderUsername, chat, false);
-      }
-      return {
+      return this.runFollowUp({
         coderUsername,
         chatId,
-        chatUrl: chatUrl2,
-        chatCreated: false
-      };
+        preMessageChat: undefined,
+        githubOrg,
+        githubRepo,
+        githubIssueNumber
+      });
     }
     const sanitizedKey = this.inputs.idempotencyKey ? sanitizeLabelKey(this.inputs.idempotencyKey) : undefined;
     if (sanitizedKey && RESERVED_LABEL_KEYS.has(sanitizedKey)) {
       throw new Error(`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` + `Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` + "Choose a different idempotency-key value.");
     }
     const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
-    if (sanitizedKey) {
-      const follow = await this.findIdempotentMatch(sanitizedKey, ghTarget, resolvedUser.id);
+    const workflow = process.env.GITHUB_WORKFLOW || undefined;
+    if (this.inputs.forceNewChat) {
+      core2.info("force-new-chat=true: skipping chat-reuse lookup");
+    } else {
+      const follow = await this.findReuseMatch(ghTarget, resolvedUser.id, workflow, sanitizedKey);
       if (follow) {
-        core2.info(`Reusing existing chat by idempotency label: ${follow.id}`);
-        await this.coder.createChatMessage(follow.id, {
-          content: [{ type: "text", text: this.inputs.chatPrompt }],
-          model_config_id: this.inputs.modelConfigId
+        core2.info(`Reusing existing chat: ${follow.id}`);
+        return this.runFollowUp({
+          coderUsername,
+          chatId: follow.id,
+          preMessageChat: follow,
+          githubOrg,
+          githubRepo,
+          githubIssueNumber
         });
-        core2.info("Message sent successfully");
-        const chatUrl2 = this.generateChatUrl(follow.id);
-        let refreshed = follow;
-        try {
-          const fetched = await this.coder.getChat(follow.id);
-          core2.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
-          refreshed = fetched;
-        } catch (error3) {
-          core2.warning(`Failed to fetch chat after sending message; outputs reflect pre-message state: ${error3}`);
-        }
-        if (this.inputs.commentOnIssue) {
-          core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
-          await this.commentOnIssue({
-            chatUrl: chatUrl2,
-            owner: githubOrg,
-            repo: githubRepo,
-            issueNumber: githubIssueNumber,
-            chatCreated: false,
-            chat: refreshed
-          });
-        }
-        return this.buildOutputs(coderUsername, refreshed, false);
       }
     }
-    core2.info("Creating new agent chat...");
+    core2.info("Creating new agents chat...");
     const organizationID = await this.resolveOrganizationID(coderUsername, resolvedUser);
     const req = {
       organization_id: organizationID,
       content: [{ type: "text", text: this.inputs.chatPrompt }],
       workspace_id: this.inputs.workspaceId,
-      model_config_id: this.inputs.modelConfigId
+      model_config_id: this.inputs.modelConfigId,
+      labels: this.buildChatLabels(ghTarget, resolvedUser.id, workflow, sanitizedKey)
     };
-    if (sanitizedKey) {
-      req.labels = this.buildIdempotencyLabels(sanitizedKey, ghTarget, resolvedUser.id);
-    }
     const createdChat = await this.coder.createChat(req);
-    core2.info(`Agent chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
+    core2.info(`Agents chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
     const chatUrl = this.generateChatUrl(createdChat.id);
     core2.info(`Chat URL: ${chatUrl}`);
     let finalChat = createdChat;
@@ -27732,19 +27686,77 @@ class CoderAgentChatAction {
     }
     return this.buildOutputs(coderUsername, finalChat, true);
   }
-  async findIdempotentMatch(sanitizedKey, ghTarget, coderUserId) {
-    const keyLabel = `${sanitizedKey}:true`;
-    const targetLabel = `gh-target:${ghTarget}`;
-    const userLabel = `coder-agent-chat-action-user:${coderUserId}`;
+  async runFollowUp(args) {
+    const {
+      coderUsername,
+      chatId,
+      preMessageChat,
+      githubOrg,
+      githubRepo,
+      githubIssueNumber
+    } = args;
+    await this.coder.createChatMessage(chatId, {
+      content: [{ type: "text", text: this.inputs.chatPrompt }],
+      model_config_id: this.inputs.modelConfigId
+    });
+    core2.info("Message sent successfully");
+    const chatUrl = this.generateChatUrl(chatId);
+    let chat = preMessageChat;
+    if (this.inputs.wait === "complete") {
+      core2.info(`Waiting for chat to reach terminal status (timeout: ${this.inputs.waitTimeoutSeconds}s)...`);
+      chat = await this.pollWithContext(chatId, { coderUsername, chatUrl }, { requireNonTerminalFirst: true });
+      core2.info(`Chat reached terminal status: ${chat.status}`);
+    } else {
+      try {
+        const fetched = await this.coder.getChat(chatId);
+        core2.info(`Chat status: ${fetched.status}, title: ${fetched.title}`);
+        chat = fetched;
+      } catch (error3) {
+        core2.warning(preMessageChat ? `Failed to fetch chat after sending message; outputs reflect pre-message state: ${error3}` : `Failed to fetch chat after sending message; outputs will be minimal: ${error3}`);
+      }
+    }
+    if (this.inputs.commentOnIssue) {
+      core2.info(`Commenting on issue ${githubOrg}/${githubRepo}#${githubIssueNumber}`);
+      await this.commentOnIssue({
+        chatUrl,
+        owner: githubOrg,
+        repo: githubRepo,
+        issueNumber: githubIssueNumber,
+        chatCreated: false,
+        chat
+      });
+    }
+    if (chat) {
+      return this.buildOutputs(coderUsername, chat, false);
+    }
+    return {
+      coderUsername,
+      chatId,
+      chatUrl,
+      chatCreated: false
+    };
+  }
+  async findReuseMatch(ghTarget, coderUserId, workflow, sanitizedKey) {
+    const labels = [
+      `${ACTION_LABEL_KEYS.marker}:true`,
+      `${ACTION_LABEL_KEYS.target}:${ghTarget}`,
+      `${ACTION_LABEL_KEYS.user}:${coderUserId}`
+    ];
+    if (workflow) {
+      labels.push(`${ACTION_LABEL_KEYS.workflow}:${workflow}`);
+    }
+    if (sanitizedKey) {
+      labels.push(`${sanitizedKey}:true`);
+    }
     let chats;
     try {
       chats = await this.coder.listChats({
-        label: [keyLabel, targetLabel, userLabel],
+        label: labels,
         archived: false
       });
     } catch (err) {
       const inner = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to look up chats by idempotency labels [${keyLabel}, ${targetLabel}, ${userLabel}]: ${inner}`, { cause: err });
+      throw new Error(`Failed to look up chats by reuse labels [${labels.join(", ")}]: ${inner}`, { cause: err });
     }
     const live = chats.filter((chat) => chat.archived !== true);
     if (live.length === 0) {
@@ -27759,20 +27771,25 @@ class CoderAgentChatAction {
     });
     if (live.length > 1) {
       const ignored = live.slice(1).map((c) => c.id).join(", ");
-      core2.warning(`Multiple non-archived chats matched idempotency-key=${this.inputs.idempotencyKey} for ${ghTarget}. ` + `Reusing the most recent (${live[0].id}) and ignoring: ${ignored}. ` + "Concurrent triggers can race; subsequent runs converge on the " + "most recent match.");
+      core2.warning(`Multiple non-archived chats matched reuse scope for ${ghTarget}. ` + `Reusing the most recent (${live[0].id}) and ignoring: ${ignored}. ` + "Concurrent triggers can race; subsequent runs converge on the " + "most recent match.");
     }
     return live[0];
   }
-  buildIdempotencyLabels(sanitizedKey, ghTarget, coderUserId) {
-    if (RESERVED_LABEL_KEYS.has(sanitizedKey)) {
+  buildChatLabels(ghTarget, coderUserId, workflow, sanitizedKey) {
+    if (sanitizedKey && RESERVED_LABEL_KEYS.has(sanitizedKey)) {
       throw new Error(`idempotency-key sanitizes to a reserved chat-label key ("${sanitizedKey}"). ` + `Reserved keys: ${[...RESERVED_LABEL_KEYS].join(", ")}. ` + "Choose a different idempotency-key value.");
     }
     const labels = {
-      "coder-agent-chat-action": "true",
-      "gh-target": ghTarget,
-      "coder-agent-chat-action-user": coderUserId
+      [ACTION_LABEL_KEYS.marker]: "true",
+      [ACTION_LABEL_KEYS.target]: ghTarget,
+      [ACTION_LABEL_KEYS.user]: coderUserId
     };
-    labels[sanitizedKey] = "true";
+    if (workflow) {
+      labels[ACTION_LABEL_KEYS.workflow] = workflow;
+    }
+    if (sanitizedKey) {
+      labels[sanitizedKey] = "true";
+    }
     return labels;
   }
 }
@@ -27843,11 +27860,15 @@ var ActionInputsObjectSchema = exports_external.object({
   commentOnIssue: exports_external.boolean().default(true),
   wait: exports_external.enum(["none", "complete"]).default("none"),
   waitTimeoutSeconds: exports_external.coerce.number().int().positive().default(DEFAULT_WAIT_TIMEOUT_SECONDS),
-  idempotencyKey: exports_external.string().min(1).optional()
+  idempotencyKey: exports_external.string().min(1).optional(),
+  forceNewChat: exports_external.boolean().default(false)
 });
 var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.githubUserID !== undefined && data.coderUsername !== undefined), {
   message: "Cannot set both github-user-id and coder-username; choose one.",
   path: ["coderUsername"]
+}).refine((data) => !(data.existingChatId !== undefined && data.forceNewChat === true), {
+  message: "Cannot set both existing-chat-id and force-new-chat; choose one.",
+  path: ["forceNewChat"]
 });
 var ChatErrorKindSchema2 = exports_external.enum([
   "spend_exceeded",
@@ -27904,7 +27925,8 @@ async function main() {
       commentOnIssue: core4.getBooleanInput("comment-on-issue"),
       wait: core4.getInput("wait") || undefined,
       waitTimeoutSeconds: core4.getInput("wait-timeout-seconds") || undefined,
-      idempotencyKey: core4.getInput("idempotency-key") || undefined
+      idempotencyKey: core4.getInput("idempotency-key") || undefined,
+      forceNewChat: core4.getBooleanInput("force-new-chat")
     });
     core4.debug("Inputs validated successfully");
     core4.debug(`Coder URL: ${inputs.coderURL}`);

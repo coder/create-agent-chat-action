@@ -1,14 +1,14 @@
-name: "Coder Create Agent Chat"
-description: "Create a Coder Agent Chat for a GitHub user, with support for issue commenting"
+name: "Coder Agents Chat"
+description: "Run Coder agents from any GitHub workflow. Triage issues, review PRs, or follow up on an existing chat."
 author: "Coder Technologies Inc. <https://coder.com>"
 
 branding:
-  icon: message-circle
-  color: purple
+  icon: play
+  color: gray-dark
 
 inputs:
   chat-prompt:
-    description: "Prompt to send to the agent chat. Templated by the workflow before being passed in."
+    description: "Prompt to send to the agents chat. Templated by the workflow before being passed in."
     required: true
 
   coder-token:
@@ -48,7 +48,7 @@ inputs:
     required: false
 
   existing-chat-id:
-    description: "Existing chat ID to send a follow-up message to instead of creating a new chat."
+    description: "Existing chat ID to send a follow-up message to instead of creating a new chat. Mutually exclusive with force-new-chat."
     required: false
 
   comment-on-issue:
@@ -67,8 +67,13 @@ inputs:
     default: "600"
 
   idempotency-key:
-    description: "Optional key used to deduplicate chats. When set and existing-chat-id is unset, the action looks up the most recent non-archived chat scoped to this `gh-target` and resolved Coder user carrying this label and sends a follow-up message instead of creating a duplicate."
+    description: "Optional sharding key to narrow the default per-workflow scope. By default the action reuses the most recent non-archived chat scoped to `gh-target`, the resolved Coder user, and the workflow name. Set this to maintain multiple parallel chats on the same target/user/workflow (for example, one per matrix dimension)."
     required: false
+
+  force-new-chat:
+    description: "Always create a new chat instead of reusing the most recent matching chat. Mutually exclusive with existing-chat-id."
+    required: false
+    default: "false"
 
 outputs:
   coder-username:

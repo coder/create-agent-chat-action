@@ -39,6 +39,7 @@ async function main() {
 			wait: core.getInput("wait") || undefined,
 			waitTimeoutSeconds: core.getInput("wait-timeout-seconds") || undefined,
 			idempotencyKey: core.getInput("idempotency-key") || undefined,
+			forceNewChat: core.getBooleanInput("force-new-chat"),
 		});
 
 		core.debug("Inputs validated successfully");

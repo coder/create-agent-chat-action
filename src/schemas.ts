@@ -28,6 +28,7 @@ const ActionInputsObjectSchema = z.object({
 		.positive()
 		.default(DEFAULT_WAIT_TIMEOUT_SECONDS),
 	idempotencyKey: z.string().min(1).optional(),
+	forceNewChat: z.boolean().default(false),
 });
 
 export const ActionInputsSchema = ActionInputsObjectSchema.refine(
@@ -36,6 +37,12 @@ export const ActionInputsSchema = ActionInputsObjectSchema.refine(
 	{
 		message: "Cannot set both github-user-id and coder-username; choose one.",
 		path: ["coderUsername"],
+	},
+).refine(
+	(data) => !(data.existingChatId !== undefined && data.forceNewChat === true),
+	{
+		message: "Cannot set both existing-chat-id and force-new-chat; choose one.",
+		path: ["forceNewChat"],
 	},
 );
 

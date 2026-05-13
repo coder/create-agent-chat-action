@@ -19,6 +19,7 @@ const actionInputValid: ActionInputs = {
 	commentOnIssue: true,
 	wait: "none",
 	waitTimeoutSeconds: DEFAULT_WAIT_TIMEOUT_SECONDS,
+	forceNewChat: false,
 };
 
 describe("ActionInputsSchema", () => {
@@ -181,6 +182,17 @@ describe("ActionInputsSchema", () => {
 				coderUsername: "testuser",
 			};
 			expect(() => ActionInputsSchema.parse(input)).toThrow();
+		});
+
+		test("rejects input with both existingChatId and forceNewChat", () => {
+			const input = {
+				...actionInputValid,
+				existingChatId: "00000000-0000-0000-0000-000000000001",
+				forceNewChat: true,
+			};
+			expect(() => ActionInputsSchema.parse(input)).toThrow(
+				/existing-chat-id and force-new-chat/,
+			);
 		});
 
 		test("rejects githubUserID of 0", () => {

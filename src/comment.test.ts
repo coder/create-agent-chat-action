@@ -26,13 +26,13 @@ void _kindMirrorsDetail;
 describe("buildCommentMarker", () => {
 	test("uses the marker prefix and appends the key verbatim", () => {
 		expect(buildCommentMarker("owner/repo#123")).toBe(
-			"<!-- coder-agent-chat-action:owner/repo#123 -->",
+			"<!-- coder-agents-chat-action:owner/repo#123 -->",
 		);
 	});
 
 	test("preserves an idempotency-key value verbatim", () => {
 		expect(buildCommentMarker("my-key")).toBe(
-			"<!-- coder-agent-chat-action:my-key -->",
+			"<!-- coder-agents-chat-action:my-key -->",
 		);
 	});
 });
@@ -218,7 +218,7 @@ describe("classifyError", () => {
 });
 
 describe("buildFailureCommentBody", () => {
-	const marker = "<!-- coder-agent-chat-action:owner/repo#123 -->";
+	const marker = "<!-- coder-agents-chat-action:owner/repo#123 -->";
 	const chatsUrl = "https://coder.test/chats";
 
 	test("spend_exceeded body includes kind, dollar amounts, deployment chat URL, and marker", () => {
@@ -306,7 +306,7 @@ describe("buildFailureCommentBody", () => {
 			expect(body).toContain("990e8400-e29b-41d4-a716-446655440000");
 			// Run-phase heading: the chat ran for some time, did not fail
 			// to start. "failed to start" would mislead the operator.
-			expect(body).toContain("**Coder Agent Chat: failed**");
+			expect(body).toContain("**Coder Agents Chat: failed**");
 			expect(body).not.toContain("failed to start");
 			// Chat-specific link, not the deployment chats list.
 			expect(body).toContain(chatUrl);
@@ -331,7 +331,7 @@ describe("buildFailureCommentBody", () => {
 				chatUrl,
 				marker,
 			});
-			expect(body).toContain("**Coder Agent Chat: failed**");
+			expect(body).toContain("**Coder Agents Chat: failed**");
 			expect(body).not.toContain("failed to start");
 			expect(body).not.toContain("while creating the chat");
 			expect(body).toContain("while polling the chat");
@@ -360,7 +360,7 @@ describe("buildFailureCommentBody", () => {
 				chatStatus: "error",
 				marker,
 			});
-			expect(body).toContain("**Coder Agent Chat: failed**");
+			expect(body).toContain("**Coder Agents Chat: failed**");
 			expect(body).toContain("chat ran and ended in an error state");
 			// The polling-network phrasing must not be on the chat-error
 			// path; that phrasing tells the operator to debug connectivity
@@ -381,7 +381,7 @@ describe("buildFailureCommentBody", () => {
 				message: "Coder API error: Bad Gateway",
 			};
 			const body = buildFailureCommentBody(detail, { chatsUrl, marker });
-			expect(body).toContain("**Coder Agent Chat: failed to start**");
+			expect(body).toContain("**Coder Agents Chat: failed to start**");
 			expect(body).toContain("while running the action");
 			expect(body).toContain(chatsUrl);
 			expect(body.endsWith(marker)).toBe(true);
@@ -430,7 +430,7 @@ describe("findCommentByPredicate", () => {
 		"sweeps every page (octokit.paginate) and finds the marker even when " +
 			"it sits past the first 30-comment page",
 		async () => {
-			const marker = "<!-- coder-agent-chat-action:owner/repo#1 -->";
+			const marker = "<!-- coder-agents-chat-action:owner/repo#1 -->";
 			// 35 noise comments before the marker, then a newer noise comment
 			// after it. octokit.paginate would return the concatenation of all
 			// pages; we just need to confirm findCommentByPredicate calls
@@ -487,7 +487,7 @@ describe("findCommentByPredicate", () => {
 	});
 
 	test("returns the most recent matching comment when multiple match", async () => {
-		const marker = "<!-- coder-agent-chat-action:owner/repo#1 -->";
+		const marker = "<!-- coder-agents-chat-action:owner/repo#1 -->";
 		const paginate = mock(async () => [
 			{ id: 1, body: `older\n\n${marker}` },
 			{ id: 2, body: `newer\n\n${marker}` },
@@ -509,7 +509,7 @@ describe("findCommentByPredicate", () => {
 	});
 });
 describe("buildSuccessCommentBody", () => {
-	const marker = "<!-- coder-agent-chat-action:owner/repo#123 -->";
+	const marker = "<!-- coder-agents-chat-action:owner/repo#123 -->";
 	const chatUrl =
 		"https://coder.test/chats/990e8400-e29b-41d4-a716-446655440000";
 
@@ -600,7 +600,7 @@ describe("buildSuccessCommentBody", () => {
 				changedFiles: 3,
 			};
 			const body = buildSuccessCommentBody(ctx);
-			expect(body).toContain("**Coder Agent Chat: created**");
+			expect(body).toContain("**Coder Agents Chat: created**");
 			expect(body).toContain(chatUrl);
 			expect(body).toContain("Status: running");
 			// The wait=none gate must drop diff fields even when the
@@ -626,8 +626,8 @@ describe("buildSuccessCommentBody", () => {
 				chatCreated: false,
 			};
 			const body = buildSuccessCommentBody(ctx);
-			expect(body).toContain("**Coder Agent Chat: message sent**");
-			expect(body).not.toContain("**Coder Agent Chat: created**");
+			expect(body).toContain("**Coder Agents Chat: message sent**");
+			expect(body).not.toContain("**Coder Agents Chat: created**");
 			expect(body).toContain(chatUrl);
 			expect(body).toContain("Status: running");
 			expect(body.endsWith(marker)).toBe(true);
@@ -659,7 +659,7 @@ describe("buildSuccessCommentBody", () => {
 		() => {
 			// The branch is currently unreachable (waitForTerminal always
 			// returns a chat or throws), but the safety-net code emits
-			// `**Coder Agent Chat: complete**` for this case so a future
+			// `**Coder Agents Chat: complete**` for this case so a future
 			// invariant break does not produce a body with no heading.
 			// Test the safety net so a regression does not silently render
 			// the wrong output.
@@ -671,7 +671,7 @@ describe("buildSuccessCommentBody", () => {
 				chatCreated: true,
 			};
 			const body = buildSuccessCommentBody(ctx);
-			expect(body).toContain("**Coder Agent Chat: complete**");
+			expect(body).toContain("**Coder Agents Chat: complete**");
 			expect(body).not.toContain("Status:");
 			expect(body.endsWith(marker)).toBe(true);
 		},
@@ -686,7 +686,7 @@ describe("buildSuccessCommentBody", () => {
 			chatCreated: true,
 		};
 		const body = buildSuccessCommentBody(ctx);
-		expect(body).toContain("<!-- coder-agent-chat-action:owner/repo#1 -->");
+		expect(body).toContain("<!-- coder-agents-chat-action:owner/repo#1 -->");
 	});
 
 	test(

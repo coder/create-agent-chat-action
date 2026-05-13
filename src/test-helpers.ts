@@ -146,6 +146,7 @@ export function createMockInputs(
 		commentOnIssue: true,
 		wait: "none",
 		waitTimeoutSeconds: DEFAULT_WAIT_TIMEOUT_SECONDS,
+		forceNewChat: false,
 		...overrides,
 	} as ActionInputs;
 }
@@ -164,7 +165,9 @@ export class MockCoderClient implements CoderClient {
 	public mockCreateChat = mock();
 	public mockCreateChatMessage = mock();
 	public mockGetChat = mock();
-	public mockListChats = mock();
+	public mockListChats = mock((_opts?: ListChatsOptions) =>
+		Promise.resolve([] as CoderChat[]),
+	);
 
 	async getCoderUserByGitHubId(githubUserId: number): Promise<CoderSDKUser> {
 		return this.mockGetCoderUserByGithubID(githubUserId);

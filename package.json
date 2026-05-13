@@ -1,7 +1,7 @@
 {
-	"name": "coder-agent-chat-action",
+	"name": "coder-agents-chat-action",
 	"version": "1.0.0",
-	"description": "GitHub Action to create and manage Coder Agent Chats",
+	"description": "GitHub Action to create and manage Coder Agents chats",
 	"main": "dist/index.js",
 	"scripts": {
 		"build": "bun build src/index.ts --outfile dist/index.js --target node --format cjs",

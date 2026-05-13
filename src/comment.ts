@@ -50,7 +50,7 @@ export type FailureDetail =
 // to `comment.ts` callers and `index.ts` for backward source compatibility.
 export type { ChatErrorKind } from "./coder-client";
 
-const COMMENT_MARKER_PREFIX = "<!-- coder-agent-chat-action:";
+const COMMENT_MARKER_PREFIX = "<!-- coder-agents-chat-action:";
 const COMMENT_MARKER_SUFFIX = " -->";
 
 // Build the per-comment marker. See `deriveCommentKey` for how the `key`
@@ -60,7 +60,7 @@ export function buildCommentMarker(key: string): string {
 }
 
 // Derive the marker key. Same value is used by the failure-comment helper
-// and (when wired) by idempotency lookup so they agree per target.
+// and by the success-comment helper so they agree per target.
 //
 // Without a workflow suffix, two workflows targeting the same issue/PR
 // would collide on the same key and overwrite each other's comment.
@@ -238,8 +238,8 @@ export function buildFailureCommentBody(
 ): string {
 	const runPhase = isRunPhaseFailure(detail.kind, ctx);
 	const heading = runPhase
-		? "**Coder Agent Chat: failed**"
-		: "**Coder Agent Chat: failed to start**";
+		? "**Coder Agents Chat: failed**"
+		: "**Coder Agents Chat: failed to start**";
 	const lines: string[] = [heading, ""];
 	const linkLine = ctx.chatUrl
 		? `View the chat in the Coder deployment: ${ctx.chatUrl}`
@@ -385,7 +385,7 @@ export interface SuccessCommentContext {
 // path so re-runs accumulate in one comment per target.
 //
 // Heading variants:
-//   wait=complete + completed: "Coder Agent Chat: completed".
+//   wait=complete + completed: "Coder Agents Chat: completed".
 //   wait=complete + waiting: ambiguous phrasing (`waiting` conflates
 //     "done" with "awaiting input").
 //   wait=none + chatCreated: "created".
@@ -399,17 +399,17 @@ export function buildSuccessCommentBody(ctx: SuccessCommentContext): string {
 	if (ctx.waitMode === "complete" && ctx.chatStatus === "waiting") {
 		// `waiting` conflates "done" and "awaiting input"; do not claim
 		// completion.
-		lines.push("**Coder Agent Chat: agent finished or is awaiting input**");
+		lines.push("**Coder Agents Chat: agent finished or is awaiting input**");
 	} else if (ctx.waitMode === "complete" && ctx.chatStatus !== undefined) {
-		lines.push(`**Coder Agent Chat: ${ctx.chatStatus}**`);
+		lines.push(`**Coder Agents Chat: ${ctx.chatStatus}**`);
 	} else if (ctx.waitMode === "complete") {
 		// Safety net: waitForTerminal always returns a chat or throws, so
 		// this branch should be unreachable today.
-		lines.push("**Coder Agent Chat: complete**");
+		lines.push("**Coder Agents Chat: complete**");
 	} else if (ctx.chatCreated) {
-		lines.push("**Coder Agent Chat: created**");
+		lines.push("**Coder Agents Chat: created**");
 	} else {
-		lines.push("**Coder Agent Chat: message sent**");
+		lines.push("**Coder Agents Chat: message sent**");
 	}
 
 	lines.push("", `Chat: ${ctx.chatUrl}`);
