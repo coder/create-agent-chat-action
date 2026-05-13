@@ -37,4 +37,13 @@ describe("RESERVED_LABEL_KEYS", () => {
 		// same target.
 		expect(RESERVED_LABEL_KEYS.has("coder-agents-chat-action-user")).toBe(true);
 	});
+
+	test("includes the per-workflow scope key that prevents reuse-scope hijack", () => {
+		// Without this entry, a sanitized idempotency-key value of
+		// "coder-agents-chat-action-workflow" would silently overwrite the
+		// per-workflow label and break per-workflow reuse isolation.
+		expect(RESERVED_LABEL_KEYS.has("coder-agents-chat-action-workflow")).toBe(
+			true,
+		);
+	});
 });

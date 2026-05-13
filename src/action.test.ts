@@ -3466,8 +3466,19 @@ describe("CoderAgentChatAction", () => {
 				mockChatMessageResponse,
 			);
 			coderClient.mockGetChat.mockResolvedValue(mockChat);
+			octokit.rest.issues.listComments.mockResolvedValue({
+				data: [],
+			} as ReturnType<typeof octokit.rest.issues.listComments>);
+			octokit.rest.issues.createComment.mockResolvedValue(
+				{} as ReturnType<typeof octokit.rest.issues.createComment>,
+			);
 
-			const inputs = createMockInputs({ githubUserID: 12345 });
+			const modelConfigId = "d3a2b1c4-5678-49ab-bcde-1234567890ab";
+			const inputs = createMockInputs({
+				githubUserID: 12345,
+				chatPrompt: "continue the work",
+				modelConfigId,
+			});
 			const action = new CoderAgentChatAction(
 				coderClient,
 				octokit as unknown as Octokit,
@@ -3477,9 +3488,29 @@ describe("CoderAgentChatAction", () => {
 
 			const outputs = await action.run();
 
+			// Pin the wire shape: the reused chat receives the prompt and
+			// model-config-id, not just any call. A regression that dropped
+			// content or model_config_id would have passed the previous
+			// "called once" assertion.
 			expect(coderClient.mockCreateChatMessage).toHaveBeenCalledTimes(1);
+			expect(coderClient.mockCreateChatMessage).toHaveBeenCalledWith(
+				mockChat.id,
+				expect.objectContaining({
+					content: [{ type: "text", text: "continue the work" }],
+					model_config_id: modelConfigId,
+				}),
+			);
 			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
 			expect(outputs.chatCreated).toBe(false);
+
+			// The comment heading distinguishes "message sent" (follow-up)
+			// from "created" (new chat) and from the wait=complete variants.
+			expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+			const commentCall = octokit.rest.issues.createComment.mock
+				.calls[0]?.[0] as { body: string } | undefined;
+			expect(commentCall?.body).toContain(
+				"**Coder Agents Chat: message sent**",
+			);
 		});
 
 		test("default + match + wait=complete: polls until terminal status (no silent skip)", async () => {
@@ -3527,10 +3558,16 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("default + getChat refresh fails: returns the pre-message snapshot instead of failing", async () => {
+			// Use a distinguishable pre-message status so the assertion can
+			// distinguish "snapshot preserved" from "refresh skipped entirely."
+			// mockChat defaults to "running"; the snapshot here is "waiting".
+			const snapshot = {
+				...mockChat,
+				archived: false,
+				status: "waiting" as const,
+			};
 			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
-			coderClient.mockListChats.mockResolvedValue([
-				{ ...mockChat, archived: false },
-			]);
+			coderClient.mockListChats.mockResolvedValue([snapshot]);
 			coderClient.mockCreateChatMessage.mockResolvedValue(
 				mockChatMessageResponse,
 			);
@@ -3546,7 +3583,9 @@ describe("CoderAgentChatAction", () => {
 
 			const outputs = await action.run();
 
+			expect(coderClient.mockGetChat).toHaveBeenCalledWith(mockChat.id);
 			expect(outputs.chatId).toBe(mockChat.id);
+			expect(outputs.chatStatus).toBe("waiting");
 			expect(outputs.chatCreated).toBe(false);
 		});
 
@@ -3635,7 +3674,7 @@ describe("CoderAgentChatAction", () => {
 			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
 		});
 
-		test("force-new-chat: skips lookup and creates a new chat", async () => {
+		test("force-new-chat: skips lookup and creates a new chat with the action labels", async () => {
 			coderClient.mockGetCoderUserByGithubID.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
 
@@ -3654,6 +3693,16 @@ describe("CoderAgentChatAction", () => {
 
 			expect(coderClient.mockListChats).not.toHaveBeenCalled();
 			expect(coderClient.mockCreateChat).toHaveBeenCalledTimes(1);
+			// Labels are written on every action-created chat regardless of
+			// path. A regression that conditionally omitted labels on the
+			// force-new-chat path would make those chats invisible to future
+			// reuse lookups and not be caught without these assertions.
+			const req = coderClient.mockCreateChat.mock.calls[0]?.[0] as
+				| { labels?: Record<string, string> }
+				| undefined;
+			expect(req?.labels?.["coder-agents-chat-action"]).toBe("true");
+			expect(req?.labels?.["gh-target"]).toBe("test-org/test-repo#123");
+			expect(req?.labels?.["coder-agents-chat-action-user"]).toBe(mockUser.id);
 		});
 
 		test("listChats throws: error propagates with operation context", async () => {
