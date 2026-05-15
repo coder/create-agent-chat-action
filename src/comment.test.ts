@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { CoderAPIError } from "./coder-client";
 import {
 	buildCommentMarker,
-	buildDeploymentChatsUrl,
+	buildDeploymentAgentsUrl,
 	buildFailureCommentBody,
 	buildSuccessCommentBody,
 	type ChatErrorKind,
@@ -219,9 +219,9 @@ describe("classifyError", () => {
 
 describe("buildFailureCommentBody", () => {
 	const marker = "<!-- coder-agents-chat-action:owner/repo#123 -->";
-	const chatsUrl = "https://coder.test/agents";
+	const agentsUrl = "https://coder.test/agents";
 
-	test("spend_exceeded body includes kind, dollar amounts, deployment chat URL, and marker", () => {
+	test("spend_exceeded body includes kind, dollar amounts, deployment agents URL, and marker", () => {
 		const detail: FailureDetail = {
 			kind: "spend_exceeded",
 			message: "Chat usage limit exceeded.",
@@ -229,11 +229,11 @@ describe("buildFailureCommentBody", () => {
 			limitMicros: 5000000,
 			resetsAt: "2026-05-01T00:00:00Z",
 		};
-		const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 		expect(body).toContain("chat-error-kind=spend_exceeded");
 		expect(body).toContain("$1.23");
 		expect(body).toContain("$5.00");
-		expect(body).toContain(chatsUrl);
+		expect(body).toContain(agentsUrl);
 		expect(body.endsWith(marker)).toBe(true);
 	});
 
@@ -242,7 +242,7 @@ describe("buildFailureCommentBody", () => {
 			kind: "user_not_found",
 			message: "No Coder user found with GitHub user ID 12345",
 		};
-		const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 		expect(body).toContain("chat-error-kind=user_not_found");
 		expect(body).toContain("acting-github-user-id");
 		expect(body).toContain("acting-coder-username");
@@ -254,7 +254,7 @@ describe("buildFailureCommentBody", () => {
 			kind: "user_ambiguous",
 			message: "Multiple Coder users found with GitHub user ID 12345",
 		};
-		const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 		expect(body).toContain("chat-error-kind=user_ambiguous");
 		expect(body).toContain("acting-coder-username");
 		expect(body.endsWith(marker)).toBe(true);
@@ -265,7 +265,7 @@ describe("buildFailureCommentBody", () => {
 			kind: "api_error",
 			message: "Coder API error: Bad Gateway",
 		};
-		const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 		expect(body).toContain("chat-error-kind=api_error");
 		expect(body).toContain("Coder API error: Bad Gateway");
 		expect(body.endsWith(marker)).toBe(true);
@@ -279,7 +279,7 @@ describe("buildFailureCommentBody", () => {
 			kind: "org_not_found",
 			message: "Coder user has no organization memberships",
 		};
-		const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 		expect(body).toContain("chat-error-kind=org_not_found");
 		expect(body).toContain("coder-organization");
 		expect(body.endsWith(marker)).toBe(true);
@@ -297,7 +297,7 @@ describe("buildFailureCommentBody", () => {
 			const chatUrl =
 				"https://coder.test/agents/990e8400-e29b-41d4-a716-446655440000";
 			const body = buildFailureCommentBody(detail, {
-				chatsUrl,
+				agentsUrl,
 				chatUrl,
 				marker,
 			});
@@ -327,7 +327,7 @@ describe("buildFailureCommentBody", () => {
 			const chatUrl =
 				"https://coder.test/agents/990e8400-e29b-41d4-a716-446655440000";
 			const body = buildFailureCommentBody(detail, {
-				chatsUrl,
+				agentsUrl,
 				chatUrl,
 				marker,
 			});
@@ -355,7 +355,7 @@ describe("buildFailureCommentBody", () => {
 			const chatUrl =
 				"https://coder.test/agents/990e8400-e29b-41d4-a716-446655440000";
 			const body = buildFailureCommentBody(detail, {
-				chatsUrl,
+				agentsUrl,
 				chatUrl,
 				chatStatus: "error",
 				marker,
@@ -380,10 +380,10 @@ describe("buildFailureCommentBody", () => {
 				kind: "api_error",
 				message: "Coder API error: Bad Gateway",
 			};
-			const body = buildFailureCommentBody(detail, { chatsUrl, marker });
+			const body = buildFailureCommentBody(detail, { agentsUrl, marker });
 			expect(body).toContain("**Coder Agents Chat: failed to start**");
 			expect(body).toContain("while running the action");
-			expect(body).toContain(chatsUrl);
+			expect(body).toContain(agentsUrl);
 			expect(body.endsWith(marker)).toBe(true);
 		},
 	);
@@ -408,18 +408,18 @@ describe("normalizeBaseUrl", () => {
 	});
 });
 
-describe("buildDeploymentChatsUrl", () => {
+describe("buildDeploymentAgentsUrl", () => {
 	test("appends /agents to a clean base URL", () => {
-		expect(buildDeploymentChatsUrl("https://coder.test")).toBe(
+		expect(buildDeploymentAgentsUrl("https://coder.test")).toBe(
 			"https://coder.test/agents",
 		);
 	});
 
 	test("normalizes trailing slash, query, and fragment before appending", () => {
-		expect(buildDeploymentChatsUrl("https://coder.test/?x=1")).toBe(
+		expect(buildDeploymentAgentsUrl("https://coder.test/?x=1")).toBe(
 			"https://coder.test/agents",
 		);
-		expect(buildDeploymentChatsUrl("https://coder.test/#a")).toBe(
+		expect(buildDeploymentAgentsUrl("https://coder.test/#a")).toBe(
 			"https://coder.test/agents",
 		);
 	});

@@ -213,7 +213,7 @@ function formatMicrosAsDollars(micros: number): string {
 }
 
 export interface FailureCommentContext {
-	chatsUrl: string;
+	agentsUrl: string;
 	marker: string;
 	// Chat-specific URL when the failure surfaced after the chat existed
 	// (timeout, error-state terminal, polling-network blip). Flips the
@@ -243,7 +243,7 @@ export function buildFailureCommentBody(
 	const lines: string[] = [heading, ""];
 	const linkLine = ctx.chatUrl
 		? `View the chat in the Coder deployment: ${ctx.chatUrl}`
-		: `View chats in the Coder deployment: ${ctx.chatsUrl}`;
+		: `View agents in the Coder deployment: ${ctx.agentsUrl}`;
 	switch (detail.kind) {
 		case "spend_exceeded":
 			lines.push(
@@ -275,7 +275,8 @@ export function buildFailureCommentBody(
 			lines.push(
 				"Multiple Coder users matched the GitHub identity. Set the " +
 					"`acting-coder-username` input to the specific account this " +
-					"workflow should run as.",
+					"workflow should use as the acting user (for org pick and the " +
+					"per-user reuse label).",
 				"",
 				`- chat-error-kind=${detail.kind}`,
 				`- Detail: ${detail.message}`,
@@ -543,8 +544,8 @@ export async function upsertCommentByMarker(args: {
 	});
 }
 
-// Deployment-level chats URL for the "view chats" link in the failure body.
+// Deployment-level agents URL for the "view agents" link in the failure body.
 // We use the deployment list because a creation failure has no chat ID.
-export function buildDeploymentChatsUrl(coderURL: string): string {
+export function buildDeploymentAgentsUrl(coderURL: string): string {
 	return `${normalizeBaseUrl(coderURL)}/agents`;
 }

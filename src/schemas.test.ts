@@ -328,7 +328,7 @@ describe("ActionOutputsSchema", () => {
 	const minimalOutputs = {
 		coderUsername: "testuser",
 		chatId: "990e8400-e29b-41d4-a716-446655440000",
-		chatUrl: "https://coder.test/chats/990e8400-e29b-41d4-a716-446655440000",
+		chatUrl: "https://coder.test/agents/990e8400-e29b-41d4-a716-446655440000",
 		chatCreated: true,
 	};
 

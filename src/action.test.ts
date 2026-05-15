@@ -1977,6 +1977,47 @@ describe("CoderAgentChatAction", () => {
 
 			expect(coderClient.mockGetAuthenticatedUser).not.toHaveBeenCalled();
 		});
+
+		test("continues with a soft warning when users/me itself rejects", async () => {
+			// The divergence check is best-effort. A `users/me` failure must
+			// not crash the action before createChat; the warning surfaces the
+			// fetch failure and the action proceeds with the resolved acting
+			// user. createChat is still reached and the chat is created.
+			coderClient.mockGetCoderUserByUsername.mockResolvedValue(mockUser);
+			coderClient.mockGetAuthenticatedUser.mockRejectedValue(
+				new Error("connection refused"),
+			);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+			const warningSpy = spyOn(core, "warning").mockImplementation(() => {});
+
+			try {
+				const inputs = createMockInputs({
+					githubUserID: undefined,
+					coderUsername: mockUser.username,
+					commentOnIssue: false,
+				});
+				const action = new CoderAgentChatAction(
+					coderClient,
+					octokit as unknown as Octokit,
+					inputs,
+					createMockContext({ eventName: "issues" }),
+				);
+
+				const result = await action.run();
+
+				expect(result.coderUsername).toBe(mockUser.username);
+				expect(coderClient.mockCreateChat).toHaveBeenCalledTimes(1);
+				const softWarnings = warningSpy.mock.calls.filter((args) =>
+					String(args[0] ?? "").includes(
+						"Could not fetch the `coder-token` owner for the token-owner divergence check",
+					),
+				);
+				expect(softWarnings.length).toBe(1);
+				expect(String(softWarnings[0][0])).toContain("connection refused");
+			} finally {
+				warningSpy.mockRestore();
+			}
+		});
 	});
 
 	describe("wait=complete polling", () => {

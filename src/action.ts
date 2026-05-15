@@ -16,7 +16,7 @@ import {
 } from "./sanitize-label-key";
 import {
 	buildCommentMarker,
-	buildDeploymentChatsUrl,
+	buildDeploymentAgentsUrl,
 	buildFailureCommentBody,
 	buildSuccessCommentBody,
 	classifyError,
@@ -705,11 +705,21 @@ export class CoderAgentChatAction {
 						`${trust.reason}. ` +
 						"Set the `acting-coder-username` input to a Coder username, or set " +
 						"`acting-github-user-id` to the GitHub numeric user id of the user " +
-						"the chat should run as.",
+						"to use as the acting user (for org pick and the per-user reuse label).",
 				);
 			}
 			if (trust.kind === "trusted") {
 				core.info(`Auto-resolve trust check passed: ${trust.reason}`);
+			} else {
+				// no-signal: events like `issues`, `push`, same-repo
+				// `pull_request`, and `workflow_dispatch` carry no sender-
+				// association data the gate can act on. Log so an operator
+				// debugging identity resolution can tell the gate ran and
+				// deferred, rather than being skipped.
+				core.info(
+					"Auto-resolve trust gate found no signal in the event payload; " +
+						"deferring to GitHub's event-permission model.",
+				);
 			}
 
 			// Prefer `sender.id` over `actor`: it's already numeric, no extra
@@ -791,8 +801,8 @@ export class CoderAgentChatAction {
 			throw new Error(
 				`Failed to resolve the \`coder-token\` owner via GET /api/v2/users/me: ${describeError(err)}. ` +
 					"Set the `acting-coder-username` input to a Coder username, or set " +
-					"`acting-github-user-id` to the GitHub numeric user id of the user the " +
-					"chat should run as.",
+					"`acting-github-user-id` to the GitHub numeric user id of the user to " +
+					"use as the acting user (for org pick and the per-user reuse label).",
 			);
 		}
 		return {
@@ -872,10 +882,12 @@ export class CoderAgentChatAction {
 	 *    `GET /api/v2/organizations/{name}`. Recommended when the user
 	 *    belongs to more than one organization, since the fallback choice
 	 *    is non-deterministic; a `core.warning` is emitted in that case.
-	 * 2. The resolved Coder user's `organization_ids[0]`. When identity was
-	 *    resolved via the GitHub-id path the user object is reused; the
-	 *    `acting-coder-username` path looks the user up here via
-	 *    `getCoderUserByUsername`.
+	 * 2. The resolved Coder user's `organization_ids[0]`. `resolveCoderUsername`
+	 *    always returns a resolved user object (across every identity
+	 *    source); this helper reuses it. The lookup-by-username branch
+	 *    below is defensive: it only fires when a future caller passes
+	 *    `resolvedUser === undefined`, which the current code path does
+	 *    not do.
 	 *
 	 * Throws `ActionFailureError("org_not_found")` when `coder-organization`
 	 * names an org that does not exist (HTTP 404) or the resolved user has no
@@ -1027,7 +1039,7 @@ export class CoderAgentChatAction {
 			deriveCommentKey({ ...this.inputs, workflow }),
 		);
 		const body = buildFailureCommentBody(detail, {
-			chatsUrl: buildDeploymentChatsUrl(this.inputs.coderURL),
+			agentsUrl: buildDeploymentAgentsUrl(this.inputs.coderURL),
 			marker,
 			chatUrl: failure.chatUrl,
 			chatStatus: failure.chat?.status,
@@ -1064,7 +1076,6 @@ export class CoderAgentChatAction {
 		core.info(`GitHub owner: ${githubOrg}`);
 		core.info(`GitHub repo: ${githubRepo}`);
 		core.info(`GitHub item number: ${githubIssueNumber}`);
-		core.info(`Coder username: ${coderUsername}`);
 
 		// If an existing chat ID is provided, send a message to it
 		if (this.inputs.existingChatId) {

@@ -38,7 +38,7 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
-The chat runs under the Coder user linked to the GitHub user who applied the label, while the chat itself is owned by the user the `coder-token` belongs to. Set `acting-coder-username` to override the acting user (used for org pick and the per-user reuse label); see [Identity](#identity-resolution) and [Security](#security-model) for the full model.
+The action resolves the acting user from the GitHub user who applied the label (used for org pick and the per-user reuse label). The chat itself is owned by the user the `coder-token` belongs to. Set `acting-coder-username` to override the acting user; see [Identity](#identity-resolution) and [Security](#security-model) for the full model.
 
 ## Inputs
 

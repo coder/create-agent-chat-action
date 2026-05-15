@@ -27080,7 +27080,7 @@ function buildFailureCommentBody(detail, ctx) {
   const runPhase = isRunPhaseFailure(detail.kind, ctx);
   const heading = runPhase ? "**Coder Agents Chat: failed**" : "**Coder Agents Chat: failed to start**";
   const lines = [heading, ""];
-  const linkLine = ctx.chatUrl ? `View the chat in the Coder deployment: ${ctx.chatUrl}` : `View chats in the Coder deployment: ${ctx.chatsUrl}`;
+  const linkLine = ctx.chatUrl ? `View the chat in the Coder deployment: ${ctx.chatUrl}` : `View agents in the Coder deployment: ${ctx.agentsUrl}`;
   switch (detail.kind) {
     case "spend_exceeded":
       lines.push("The Coder deployment's chat spend limit was reached, so this " + "chat could not be created.", "", `- chat-error-kind=${detail.kind}`, `- Spent: ${formatMicrosAsDollars(detail.spentMicros)}`, `- Limit: ${formatMicrosAsDollars(detail.limitMicros)}`);
@@ -27093,7 +27093,7 @@ function buildFailureCommentBody(detail, ctx) {
       lines.push("No Coder user could be resolved for this run. Adjust either " + "the `acting-github-user-id` input (the GitHub identity is not " + "linked to a Coder user) or pass `acting-coder-username` directly.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", linkLine);
       break;
     case "user_ambiguous":
-      lines.push("Multiple Coder users matched the GitHub identity. Set the " + "`acting-coder-username` input to the specific account this " + "workflow should run as.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", linkLine);
+      lines.push("Multiple Coder users matched the GitHub identity. Set the " + "`acting-coder-username` input to the specific account this " + "workflow should use as the acting user (for org pick and the " + "per-user reuse label).", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", linkLine);
       break;
     case "org_not_found":
       lines.push("The resolved Coder user has no matching organization. Set the " + "`coder-organization` input or grant the user a membership.", "", `- chat-error-kind=${detail.kind}`, `- Detail: ${detail.message}`, "", linkLine);
@@ -27230,7 +27230,7 @@ async function upsertCommentByMarker(args) {
     logLabel: "failure comment"
   });
 }
-function buildDeploymentChatsUrl(coderURL) {
+function buildDeploymentAgentsUrl(coderURL) {
   return `${normalizeBaseUrl(coderURL)}/agents`;
 }
 
@@ -27498,10 +27498,12 @@ class CoderAgentChatAction {
     if (!isSchedule) {
       const trust = classifyAutoResolveTrust(this.context);
       if (trust.kind === "untrusted") {
-        throw new Error("Refusing to auto-resolve a GitHub identity: " + `${trust.reason}. ` + "Set the `acting-coder-username` input to a Coder username, or set " + "`acting-github-user-id` to the GitHub numeric user id of the user " + "the chat should run as.");
+        throw new Error("Refusing to auto-resolve a GitHub identity: " + `${trust.reason}. ` + "Set the `acting-coder-username` input to a Coder username, or set " + "`acting-github-user-id` to the GitHub numeric user id of the user " + "to use as the acting user (for org pick and the per-user reuse label).");
       }
       if (trust.kind === "trusted") {
         core2.info(`Auto-resolve trust check passed: ${trust.reason}`);
+      } else {
+        core2.info("Auto-resolve trust gate found no signal in the event payload; " + "deferring to GitHub's event-permission model.");
       }
       const senderId = this.context.payload?.sender?.id;
       if (typeof senderId === "number" && Number.isInteger(senderId) && senderId > 0) {
@@ -27546,7 +27548,7 @@ class CoderAgentChatAction {
     try {
       tokenOwner = await this.getTokenOwner();
     } catch (err) {
-      throw new Error(`Failed to resolve the \`coder-token\` owner via GET /api/v2/users/me: ${describeError(err)}. ` + "Set the `acting-coder-username` input to a Coder username, or set " + "`acting-github-user-id` to the GitHub numeric user id of the user the " + "chat should run as.");
+      throw new Error(`Failed to resolve the \`coder-token\` owner via GET /api/v2/users/me: ${describeError(err)}. ` + "Set the `acting-coder-username` input to a Coder username, or set " + "`acting-github-user-id` to the GitHub numeric user id of the user to " + "use as the acting user (for org pick and the per-user reuse label).");
     }
     return {
       username: tokenOwner.username,
@@ -27647,7 +27649,7 @@ class CoderAgentChatAction {
     const workflow = process.env.GITHUB_WORKFLOW || undefined;
     const marker = buildCommentMarker(deriveCommentKey({ ...this.inputs, workflow }));
     const body = buildFailureCommentBody(detail, {
-      chatsUrl: buildDeploymentChatsUrl(this.inputs.coderURL),
+      agentsUrl: buildDeploymentAgentsUrl(this.inputs.coderURL),
       marker,
       chatUrl: failure.chatUrl,
       chatStatus: failure.chat?.status
@@ -27679,7 +27681,6 @@ class CoderAgentChatAction {
     core2.info(`GitHub owner: ${githubOrg}`);
     core2.info(`GitHub repo: ${githubRepo}`);
     core2.info(`GitHub item number: ${githubIssueNumber}`);
-    core2.info(`Coder username: ${coderUsername}`);
     if (this.inputs.existingChatId) {
       core2.info(`Sending message to existing chat: ${this.inputs.existingChatId}`);
       const chatId = ChatIdSchema.parse(this.inputs.existingChatId);
