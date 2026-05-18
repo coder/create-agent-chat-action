@@ -8,6 +8,7 @@ import {
 	type ChatErrorKind,
 	classifyError,
 	deriveCommentKey,
+	DETAIL_BLOCK_MAX_CHARS,
 	type FailureDetail,
 	findCommentByPredicate,
 	normalizeBaseUrl,
@@ -395,11 +396,11 @@ describe("renderDetailBlock", () => {
 		expect(body).toBe("- Detail:\n````\nabc\nd\te\n````");
 	});
 
-	test("caps the message at 4000 characters", () => {
-		const body = renderDetailBlock("x".repeat(10000));
-		// Header + fence open + 4000 chars + fence close + 3 newlines.
+	test("caps the message at DETAIL_BLOCK_MAX_CHARS", () => {
+		const body = renderDetailBlock("x".repeat(DETAIL_BLOCK_MAX_CHARS * 2));
+		// Header + fence open + cap + fence close + 3 newlines.
 		expect(body.length).toBe(
-			"- Detail:\n````\n".length + 4000 + "\n````".length,
+			"- Detail:\n````\n".length + DETAIL_BLOCK_MAX_CHARS + "\n````".length,
 		);
 	});
 });

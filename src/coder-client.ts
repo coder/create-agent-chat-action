@@ -296,18 +296,15 @@ export type ChatErrorKind = z.infer<typeof ChatErrorKindSchema>;
 
 /**
  * CoderAPIError carries the status code and raw response body from a Coder
- * API failure plus an optional `kind` discriminator. The kind is the
- * structural link from this client to the failure-path classifier in
- * comment.ts: classifying on `kind` rather than `err.message` regex
- * means a string reword in the error message cannot silently degrade the
- * `chat-error-kind` output to `api_error`.
+ * API failure. The body is preserved verbatim so the failure-path
+ * classifier in `comment.ts` can pattern-match structured shapes (e.g.
+ * the spend-exceeded 409) without rerunning the request.
  */
 export class CoderAPIError extends Error {
 	constructor(
 		message: string,
 		public readonly statusCode: number,
 		public readonly response?: unknown,
-		public readonly kind?: ChatErrorKind,
 	) {
 		super(message);
 		this.name = "CoderAPIError";

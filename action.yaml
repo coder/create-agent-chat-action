@@ -28,7 +28,7 @@ inputs:
     required: true
 
   coder-organization:
-    description: "Coder organization name. Looked up by name to resolve the organization UUID for chat creation. Recommended when the resolved Coder user belongs to more than one organization, since the fallback choice is non-deterministic."
+    description: "Coder organization name. Looked up by name to resolve the organization UUID for chat creation. Recommended when the Coder user belongs to more than one organization, since the fallback choice is non-deterministic."
     required: false
 
   workspace-id:

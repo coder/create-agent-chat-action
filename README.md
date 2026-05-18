@@ -241,7 +241,7 @@ Branch on the kind without parsing the message:
 
 ### Trust gate is fail-closed; no input bypass
 
-Before every chat creation, the action calls `classifyAutoResolveTrust` on the GitHub event payload and refuses untrusted triggers:
+Before every chat creation, the action calls `classifyTriggerTrust` on the GitHub event payload and refuses untrusted triggers:
 
 - Fork pull requests (`head.repo` null, `head.repo.fork === true`, or `head.repo.full_name !== base.repo.full_name`).
 - Comment or review events whose `comment.author_association` or `review.author_association` is not `OWNER`, `MEMBER`, or `COLLABORATOR`.

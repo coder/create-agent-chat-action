@@ -5,7 +5,7 @@ import {
 	type ChatStatus,
 	CoderAPIError,
 } from "./coder-client";
-import { sanitizeLabelKey } from "./sanitize-label-key";
+import { sanitizeLabelToken } from "./sanitize-label-token";
 import type { ActionInputs } from "./schemas";
 import { normalizeBaseUrl } from "./url";
 
@@ -14,15 +14,14 @@ export { normalizeBaseUrl } from "./url";
 
 type Octokit = ReturnType<typeof getOctokit>;
 
-// Shared regex for GitHub issue and PR URLs. Used by `deriveCommentKey` and
-// `parseGithubURL` so adding another path (e.g. `/discussions/`) is one edit.
-// Anchored at both ends so a non-github host or extra path segments
+// Anchored regex for a GitHub issue or PR URL on `github.com`. Anchored
+// at both ends so a non-github host or extra path segments
 // (e.g. `.../issues/123/files`, `https://attacker.example/owner/repo/issues/1`)
 // are rejected rather than silently truncated. The `(?:[?#].*)?` group keeps
 // the anchor tolerant of query strings and fragments that real-world
 // `github-url` inputs can carry (e.g. a URL copied while viewing a specific
 // comment).
-export const GITHUB_URL_REGEX =
+const GITHUB_URL_REGEX =
 	/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/;
 
 /**
@@ -106,7 +105,7 @@ export function deriveCommentKey(
 	},
 ): string {
 	if (inputs.idempotencyKey) {
-		return sanitizeLabelKey(inputs.idempotencyKey);
+		return sanitizeLabelToken(inputs.idempotencyKey);
 	}
 	const parsed = parseGithubItemURL(inputs.githubURL);
 	let base: string;
@@ -229,16 +228,21 @@ function formatMicrosAsDollars(micros: number): string {
  * 4-or-more backtick run in the message is downgraded to 3 so the
  * surrounding fence stays closable. Control bytes other than newline and
  * tab are stripped so adversarial content cannot inject CR-only line
- * endings or other terminal escapes. The result is capped at 4000 chars
- * to bound comment size against runaway messages.
+ * endings or other terminal escapes. The result is capped at
+ * `DETAIL_BLOCK_MAX_CHARS` to bound comment size against runaway messages.
  */
+export const DETAIL_BLOCK_MAX_CHARS = 4000;
+
 export function renderDetailBlock(message: string): string {
 	const stripped = message.replace(
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping C0 controls is the point.
 		/[\x00-\x08\x0B-\x1F\x7F]/g,
 		"",
 	);
-	const capped = stripped.length > 4000 ? stripped.slice(0, 4000) : stripped;
+	const capped =
+		stripped.length > DETAIL_BLOCK_MAX_CHARS
+			? stripped.slice(0, DETAIL_BLOCK_MAX_CHARS)
+			: stripped;
 	const safe = capped.replace(/`{4,}/g, "```");
 	return `- Detail:\n\`\`\`\`\n${safe}\n\`\`\`\``;
 }
@@ -292,7 +296,7 @@ export function buildFailureCommentBody(
 			break;
 		case "org_not_found":
 			lines.push(
-				"The resolved Coder user has no matching organization. Set the " +
+				"The Coder user has no matching organization. Set the " +
 					"`coder-organization` input or grant the user a membership.",
 				"",
 				`- chat-error-kind=${detail.kind}`,

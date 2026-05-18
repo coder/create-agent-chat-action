@@ -26885,25 +26885,22 @@ var ChatErrorKindSchema = exports_external.enum([
 class CoderAPIError extends Error {
   statusCode;
   response;
-  kind;
-  constructor(message, statusCode, response, kind) {
+  constructor(message, statusCode, response) {
     super(message);
     this.statusCode = statusCode;
     this.response = response;
-    this.kind = kind;
     this.name = "CoderAPIError";
   }
 }
 
-// src/sanitize-label-key.ts
+// src/sanitize-label-token.ts
 var ACTION_LABEL_KEYS = {
   marker: "coder-agents-chat-action",
   target: "gh-target",
   workflow: "coder-agents-chat-action-workflow",
   idempotency: "coder-agents-chat-action-idempotency"
 };
-var RESERVED_LABEL_KEYS = new Set(Object.values(ACTION_LABEL_KEYS));
-function sanitizeLabelKey(input) {
+function sanitizeLabelToken(input) {
   const lowered = input.toLowerCase();
   const replaced = lowered.replace(/[^a-z0-9._/-]/g, "-");
   const trimmed = replaced.replace(/^[^a-z0-9]+/, "");
@@ -26935,7 +26932,7 @@ function buildCommentMarker(key) {
 }
 function deriveCommentKey(inputs) {
   if (inputs.idempotencyKey) {
-    return sanitizeLabelKey(inputs.idempotencyKey);
+    return sanitizeLabelToken(inputs.idempotencyKey);
   }
   const parsed = parseGithubItemURL(inputs.githubURL);
   let base;
@@ -27014,9 +27011,10 @@ function formatMicrosAsDollars(micros) {
   const dollars = micros / 1e6;
   return `$${dollars.toFixed(2)}`;
 }
+var DETAIL_BLOCK_MAX_CHARS = 4000;
 function renderDetailBlock(message) {
   const stripped = message.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
-  const capped = stripped.length > 4000 ? stripped.slice(0, 4000) : stripped;
+  const capped = stripped.length > DETAIL_BLOCK_MAX_CHARS ? stripped.slice(0, DETAIL_BLOCK_MAX_CHARS) : stripped;
   const safe = capped.replace(/`{4,}/g, "```");
   return `- Detail:
 \`\`\`\`
@@ -27037,7 +27035,7 @@ function buildFailureCommentBody(detail, ctx) {
       lines.push("", linkLine);
       break;
     case "org_not_found":
-      lines.push("The resolved Coder user has no matching organization. Set the " + "`coder-organization` input or grant the user a membership.", "", `- chat-error-kind=${detail.kind}`, renderDetailBlock(detail.message), "", linkLine);
+      lines.push("The Coder user has no matching organization. Set the " + "`coder-organization` input or grant the user a membership.", "", `- chat-error-kind=${detail.kind}`, renderDetailBlock(detail.message), "", linkLine);
       break;
     case "api_error":
       lines.push(apiErrorPhrase(runPhase, ctx), "");
@@ -27207,7 +27205,7 @@ var TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
   "MEMBER",
   "COLLABORATOR"
 ]);
-function classifyAutoResolveTrust(context) {
+function classifyTriggerTrust(context) {
   const pr = context.payload.pull_request;
   if (pr) {
     const headRepo = pr.head?.repo;
@@ -27218,7 +27216,7 @@ function classifyAutoResolveTrust(context) {
     if (isFork) {
       return {
         kind: "untrusted",
-        reason: "the pull request is from a fork; auto-resolve refuses to bind " + "the workflow's Coder identity to a fork-PR author"
+        reason: "the pull request is from a fork"
       };
     }
   }
@@ -27396,7 +27394,7 @@ class CoderAgentChatAction {
     }
   }
   assertTrustedTrigger() {
-    const trust = classifyAutoResolveTrust(this.context);
+    const trust = classifyTriggerTrust(this.context);
     if (trust.kind === "untrusted") {
       throw new Error("Refusing to act on an untrusted trigger: " + `${trust.reason}. ` + "Add an `if:` gate to the workflow step (for example, " + "`author_association` allowlist or a label allowlist on " + "`pull_request_target`) before invoking this action. See " + "the README security model for details.");
     }
@@ -27498,7 +27496,7 @@ class CoderAgentChatAction {
         githubIssueNumber
       });
     }
-    const sanitizedIdempotency = this.inputs.idempotencyKey ? sanitizeLabelKey(this.inputs.idempotencyKey) : undefined;
+    const sanitizedIdempotency = this.inputs.idempotencyKey ? sanitizeLabelToken(this.inputs.idempotencyKey) : undefined;
     const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
     const workflow = process.env.GITHUB_WORKFLOW || undefined;
     if (this.inputs.forceNewChat) {

@@ -9,7 +9,7 @@ import type {
 	CoderSDKUser,
 	CreateChatRequest,
 } from "./coder-client";
-import { ACTION_LABEL_KEYS, sanitizeLabelKey } from "./sanitize-label-key";
+import { ACTION_LABEL_KEYS, sanitizeLabelToken } from "./sanitize-label-token";
 import {
 	buildCommentMarker,
 	buildDeploymentAgentsUrl,
@@ -92,11 +92,11 @@ export class ActionFailureError extends Error {
 }
 
 /**
- * GitHub `author_association` values that map to repository write access in
- * the action's auto-resolve trust model. `OWNER` and `MEMBER` cover org
- * and personal-repo owners; `COLLABORATOR` covers invited collaborators.
- * Any other association (including `CONTRIBUTOR`, `FIRST_TIMER`,
- * `FIRST_TIME_CONTRIBUTOR`, `MANNEQUIN`, `NONE`) is treated as untrusted.
+ * GitHub `author_association` values that map to repository write access for
+ * the trust gate. `OWNER` and `MEMBER` cover org and personal-repo owners;
+ * `COLLABORATOR` covers invited collaborators. Any other association
+ * (including `CONTRIBUTOR`, `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`,
+ * `MANNEQUIN`, `NONE`) is treated as untrusted.
  *
  * See: https://docs.github.com/en/graphql/reference/enums#commentauthorassociation
  */
@@ -111,7 +111,7 @@ const TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
  * action reads. Production callers pass `github.context`; tests build
  * fixtures via `createMockContext`.
  *
- * The auto-resolve trust gate (`classifyAutoResolveTrust`) reads
+ * The trust gate (`classifyTriggerTrust`) reads
  * `pull_request.head.repo` / `pull_request.base.repo` for fork detection,
  * and `comment.author_association` / `review.author_association` as the
  * sender-reliable trust signals. `issue.author_association` and
@@ -165,10 +165,10 @@ export interface ActionContext {
 }
 
 /**
- * Outcome of the auto-resolve trust gate. `trusted` means the gate found a
- * repository-write-level signal and auto-resolve may proceed. `untrusted`
+ * Outcome of the trust gate. `trusted` means the gate found a
+ * repository-write-level signal and the action may proceed. `untrusted`
  * means the gate found a signal that fails the bar (fork PR, low-trust
- * association) and auto-resolve must refuse. `no-signal` means the
+ * association) and the action must refuse. `no-signal` means the
  * payload carried nothing the gate can act on, so the gate defers to
  * GitHub's underlying event-permission model (secret access, branch
  * protection, etc.).
@@ -179,17 +179,15 @@ type TrustClassification =
 	| { kind: "no-signal" };
 
 /**
- * Classify whether the triggering identity from `context` is trusted for
- * auto-resolve.
+ * Classify whether the event in `context` is trusted to run the action.
  *
  * Two layers of signal, applied in order:
  *
- * 1. Fork pull requests always refuse. An attacker who opens a PR from a
- *    fork must not be able to bind the workflow's Coder token to their
- *    own Coder identity (if they happen to have one) and execute
- *    attacker-controlled prompts. A `null` `head.repo` (deleted fork) is
- *    also treated as a fork: the only way `head.repo` becomes null is
- *    when the fork's source repository was deleted, which collapses the
+ * 1. Fork pull requests always refuse. The workflow's `coder-token` is a
+ *    secret; a fork PR is attacker-controlled content and must not
+ *    execute under it. A `null` `head.repo` (deleted fork) is also
+ *    treated as a fork: the only way `head.repo` becomes null is when
+ *    the fork's source repository was deleted, which collapses the
  *    same-repo check below into a false negative.
  *
  * 2. `author_association` on `comment` or `review`, in that order. These
@@ -209,7 +207,7 @@ type TrustClassification =
  * can trigger them. The trust gate is layered on top of, not in place
  * of, those controls.
  */
-function classifyAutoResolveTrust(context: ActionContext): TrustClassification {
+function classifyTriggerTrust(context: ActionContext): TrustClassification {
 	const pr = context.payload.pull_request;
 	if (pr) {
 		const headRepo = pr.head?.repo;
@@ -225,9 +223,7 @@ function classifyAutoResolveTrust(context: ActionContext): TrustClassification {
 		if (isFork) {
 			return {
 				kind: "untrusted",
-				reason:
-					"the pull request is from a fork; auto-resolve refuses to bind " +
-					"the workflow's Coder identity to a fork-PR author",
+				reason: "the pull request is from a fork",
 			};
 		}
 	}
@@ -580,7 +576,7 @@ export class CoderAgentChatAction {
 	 * branch fired.
 	 */
 	assertTrustedTrigger(): void {
-		const trust = classifyAutoResolveTrust(this.context);
+		const trust = classifyTriggerTrust(this.context);
 		if (trust.kind === "untrusted") {
 			throw new Error(
 				"Refusing to act on an untrusted trigger: " +
@@ -613,12 +609,12 @@ export class CoderAgentChatAction {
 	 *    `GET /api/v2/organizations/{name}`. Recommended when the user
 	 *    belongs to more than one organization, since the fallback choice
 	 *    is non-deterministic; a `core.warning` is emitted in that case.
-	 * 2. The resolved Coder user's `organization_ids[0]`. The action calls
+	 * 2. The Coder user's `organization_ids[0]`. The action calls
 	 *    `users/me` once in `runInner` and threads the result here, so this
 	 *    helper never refetches.
 	 *
 	 * Throws `ActionFailureError("org_not_found")` when `coder-organization`
-	 * names an org that does not exist (HTTP 404) or the resolved user has
+	 * names an org that does not exist (HTTP 404) or the Coder user has
 	 * no org memberships. Other API errors propagate as `CoderAPIError`. The
 	 * original error is attached via `options.cause` on every wrap;
 	 * `run()`'s `handleFailure` re-classifies the failure into the
@@ -811,7 +807,7 @@ export class CoderAgentChatAction {
 		// distinct chats. Workflows that want per-actor separation can
 		// set `idempotency-key: ${{ github.actor }}` themselves.
 		const sanitizedIdempotency = this.inputs.idempotencyKey
-			? sanitizeLabelKey(this.inputs.idempotencyKey)
+			? sanitizeLabelToken(this.inputs.idempotencyKey)
 			: undefined;
 		const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
 		const workflow = process.env.GITHUB_WORKFLOW || undefined;

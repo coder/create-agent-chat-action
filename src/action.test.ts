@@ -901,6 +901,71 @@ describe("CoderAgentChatAction", () => {
 			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
 		});
 
+		test("refuses pull_request from a deleted fork (head.repo === null)", async () => {
+			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({ commentOnIssue: false });
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						// GitHub returns head.repo === null when the source fork
+						// repo has been deleted. With head.repo missing the
+						// full_name comparison can't run, so the gate must treat
+						// the null itself as the fork signal.
+						head: { repo: null },
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			await expect(action.run()).rejects.toThrow(/untrusted trigger.*fork/);
+			expect(coderClient.mockGetAuthenticatedUser).not.toHaveBeenCalled();
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		});
+
+		test("refuses pull_request when head.repo.full_name diverges from base.repo.full_name, even with fork === false", async () => {
+			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
+			coderClient.mockCreateChat.mockResolvedValue(mockChat);
+
+			const inputs = createMockInputs({ commentOnIssue: false });
+			const context = createMockContext({
+				eventName: "pull_request",
+				actor: "attacker",
+				payload: {
+					sender: { id: 99999 },
+					pull_request: {
+						// Same-owner branch-rename mid-PR (or any payload where
+						// fork=false but full_name disagrees) must still be
+						// refused. Pins the third condition independently from
+						// the fork=true short-circuit.
+						head: {
+							repo: { fork: false, full_name: "attacker/fork" },
+						},
+						base: { repo: { full_name: "owner/repo" } },
+					},
+				},
+			});
+			const action = new CoderAgentChatAction(
+				coderClient,
+				octokit as unknown as Octokit,
+				inputs,
+				context,
+			);
+
+			await expect(action.run()).rejects.toThrow(/untrusted trigger.*fork/);
+			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
+		});
+
 		test("refuses NONE-association comment events", async () => {
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
@@ -978,10 +1043,8 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("the gate has no input bypass; idempotency-key cannot bypass it", async () => {
-			// Pre-rewrite, an explicit acting-coder-username or
-			// acting-github-user-id input bypassed the gate. Those inputs
-			// were dropped; no current input bypasses the gate. Setting
-			// every remaining input still refuses an untrusted trigger.
+			// No action input bypasses the gate. Set every remaining input to
+			// confirm an untrusted trigger still refuses.
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
 
@@ -2143,7 +2206,7 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
-		test("defaults to the resolved user's first org membership when coder-organization is unset", async () => {
+		test("defaults to the Coder user's first org membership when coder-organization is unset", async () => {
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
 
@@ -2192,7 +2255,7 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
-		test("fails with chat-error-kind=org_not_found when the resolved user has no org memberships", async () => {
+		test("fails with chat-error-kind=org_not_found when the Coder user has no org memberships", async () => {
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUserNoOrgs);
 
 			const inputs = createMockInputs({
@@ -2487,8 +2550,8 @@ describe("CoderAgentChatAction", () => {
 				| { label?: string[]; archived?: boolean }
 				| undefined;
 			// The per-user label is intentionally absent: all chats this
-			// action creates are owned by the `coder-token` holder, so
-			// scoping by the resolved acting user added no isolation.
+			// action creates are owned by the `coder-token` holder, so a
+			// per-actor label would have added no isolation.
 			expect(arg?.label).toEqual([
 				"coder-agents-chat-action:true",
 				"gh-target:test-org/test-repo#123",
@@ -2551,8 +2614,7 @@ describe("CoderAgentChatAction", () => {
 				| undefined;
 			expect(req?.labels?.["coder-agents-chat-action"]).toBe("true");
 			expect(req?.labels?.["gh-target"]).toBe("test-org/test-repo#123");
-			// No per-user label: the chat owner is the token holder, not
-			// the resolved acting user.
+			// No per-user label: the chat owner is the token holder.
 			expect(req?.labels?.["coder-agents-chat-action-user"]).toBeUndefined();
 			// Workflow env unset; no workflow label and no sharding key.
 			expect(Object.keys(req?.labels ?? {}).sort()).toEqual([
@@ -2822,12 +2884,12 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("the reuse scope is intentionally not partitioned by acting user", async () => {
-			// Per the security-driven simplification, all chats this action
-			// creates are owned by the `coder-token` holder. The reuse scope
-			// does not include a per-actor label; workflows that want
-			// per-actor separation set `idempotency-key: ${{ github.actor }}`
-			// themselves. This test pins the absence of the per-user label so
-			// a regression that re-introduces it is caught.
+			// All chats this action creates are owned by the `coder-token`
+			// holder, so the reuse scope does not include a per-actor label;
+			// workflows that want per-actor separation set
+			// `idempotency-key: ${{ github.actor }}` themselves. This test
+			// pins the absence of the per-user label so a regression that
+			// re-introduces it is caught.
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockListChats.mockResolvedValue([]);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
@@ -2890,12 +2952,12 @@ describe("CoderAgentChatAction", () => {
 				).toBe("my-custom-key-");
 			});
 
-			test("reserved-key collision is no longer possible with the fixed-key scheme", async () => {
-				// Pre-rewrite, a sanitized `idempotency-key` value was used as a
-				// label KEY and could collide with action-owned keys. The fixed
-				// key (`coder-agents-chat-action-idempotency`) makes the value
-				// always a value, so even an idempotency-key of `gh-target` now
-				// just sets `coder-agents-chat-action-idempotency: gh-target`.
+			test("idempotency-key cannot overwrite an action-owned label", async () => {
+				// The sanitized idempotency-key is the VALUE of the fixed
+				// `coder-agents-chat-action-idempotency` key, so even an
+				// `idempotency-key` of `gh-target` cannot displace the
+				// `gh-target` key; it just sets
+				// `coder-agents-chat-action-idempotency: gh-target`.
 				coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 				coderClient.mockListChats.mockResolvedValue([]);
 				coderClient.mockCreateChat.mockResolvedValue(mockChat);

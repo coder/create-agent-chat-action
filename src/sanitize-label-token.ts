@@ -13,20 +13,12 @@ export const ACTION_LABEL_KEYS = {
 } as const;
 
 /**
- * Reserved label keys on chats this action creates. A sanitized
- * `idempotency-key` matching one of these is rejected upstream so the
- * user input cannot overwrite an action-owned label.
+ * Coerce an arbitrary string into a chat-label token the platform accepts.
+ * The platform applies the same regex to label keys and label values:
+ * `^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`, max 64 bytes. Empty results fall back
+ * to `"key"`.
  */
-export const RESERVED_LABEL_KEYS: ReadonlySet<string> = new Set(
-	Object.values(ACTION_LABEL_KEYS),
-);
-
-/**
- * Coerce an arbitrary string into a chat-label key the platform accepts.
- * Platform regex: `^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`, max 64 bytes. Empty
- * results fall back to `"key"`.
- */
-export function sanitizeLabelKey(input: string): string {
+export function sanitizeLabelToken(input: string): string {
 	const lowered = input.toLowerCase();
 	const replaced = lowered.replace(/[^a-z0-9._/-]/g, "-");
 	const trimmed = replaced.replace(/^[^a-z0-9]+/, "");
