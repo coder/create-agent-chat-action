@@ -1757,45 +1757,6 @@ describe("CoderAgentChatAction", () => {
 	});
 
 	describe("Error Scenarios", () => {
-		test("throws error when Coder user not found", async () => {
-			// The real RealCoderClient.getCoderUserByGitHubId throws
-			// CoderAPIError with status 404; the mock must match so
-			// classifyError sees user_not_found rather than the api_error
-			// fallback.
-			coderClient.mockGetAuthenticatedUser.mockRejectedValue(
-				new CoderAPIError(
-					"No Coder user found with GitHub user ID 12345",
-					404,
-					undefined,
-					"user_not_found",
-				),
-			);
-			octokit.rest.issues.listComments.mockResolvedValue({
-				data: [],
-			} as ReturnType<typeof octokit.rest.issues.listComments>);
-			octokit.rest.issues.createComment.mockResolvedValue(
-				{} as ReturnType<typeof octokit.rest.issues.createComment>,
-			);
-
-			const inputs = createMockInputs({});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				createMockContext(),
-			);
-
-			await expect(action.run()).rejects.toThrow(
-				"No Coder user found with GitHub user ID 12345",
-			);
-			// Assert the failure went through user_not_found classification
-			// (the comment body kind line proves classifyError matched).
-			const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
-				| { body: string }
-				| undefined;
-			expect(call?.body).toContain("chat-error-kind=user_not_found");
-		});
-
 		test("throws error when chat creation fails", async () => {
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockRejectedValue(
@@ -1861,89 +1822,6 @@ describe("CoderAgentChatAction", () => {
 				expect(call?.body).toContain("$7.50");
 				expect(call?.body).toContain("$10.00");
 				expect(call?.body).toContain("https://coder.test/agents");
-				expect(call?.body).toContain(
-					"<!-- coder-agents-chat-action:test-org/test-repo#123 -->",
-				);
-			},
-		);
-
-		test(
-			"posts a failure comment with chat-error-kind=user_not_found and " +
-				"names the input that needs adjusting",
-			async () => {
-				coderClient.mockGetAuthenticatedUser.mockRejectedValue(
-					new CoderAPIError(
-						"No Coder user found with GitHub user ID 12345",
-						404,
-						undefined,
-						"user_not_found",
-					),
-				);
-				octokit.rest.issues.listComments.mockResolvedValue({
-					data: [],
-				} as ReturnType<typeof octokit.rest.issues.listComments>);
-				octokit.rest.issues.createComment.mockResolvedValue(
-					{} as ReturnType<typeof octokit.rest.issues.createComment>,
-				);
-
-				const inputs = createMockInputs({});
-				const action = new CoderAgentChatAction(
-					coderClient,
-					octokit as unknown as Octokit,
-					inputs,
-					createMockContext(),
-				);
-
-				await expect(action.run()).rejects.toThrow();
-
-				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
-				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
-					| { body: string }
-					| undefined;
-				expect(call?.body).toContain("chat-error-kind=user_not_found");
-				expect(call?.body).toContain("acting-github-user-id");
-				expect(call?.body).toContain("acting-coder-username");
-				expect(call?.body).toContain(
-					"<!-- coder-agents-chat-action:test-org/test-repo#123 -->",
-				);
-			},
-		);
-
-		test(
-			"posts a failure comment with chat-error-kind=user_ambiguous and " +
-				"suggests acting-coder-username",
-			async () => {
-				coderClient.mockGetAuthenticatedUser.mockRejectedValue(
-					new CoderAPIError(
-						"Multiple Coder users found with GitHub user ID 12345",
-						409,
-						undefined,
-						"user_ambiguous",
-					),
-				);
-				octokit.rest.issues.listComments.mockResolvedValue({
-					data: [],
-				} as ReturnType<typeof octokit.rest.issues.listComments>);
-				octokit.rest.issues.createComment.mockResolvedValue(
-					{} as ReturnType<typeof octokit.rest.issues.createComment>,
-				);
-
-				const inputs = createMockInputs({});
-				const action = new CoderAgentChatAction(
-					coderClient,
-					octokit as unknown as Octokit,
-					inputs,
-					createMockContext(),
-				);
-
-				await expect(action.run()).rejects.toThrow();
-
-				expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
-				const call = octokit.rest.issues.createComment.mock.calls[0]?.[0] as
-					| { body: string }
-					| undefined;
-				expect(call?.body).toContain("chat-error-kind=user_ambiguous");
-				expect(call?.body).toContain("acting-coder-username");
 				expect(call?.body).toContain(
 					"<!-- coder-agents-chat-action:test-org/test-repo#123 -->",
 				);
@@ -2289,7 +2167,7 @@ describe("CoderAgentChatAction", () => {
 			);
 		});
 
-		test("defaults via getCoderUserByUsername when only acting-coder-username is set", async () => {
+		test("resolves the token owner via getAuthenticatedUser when coder-organization is unset", async () => {
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockCreateChat.mockResolvedValue(mockChat);
 
@@ -2466,7 +2344,7 @@ describe("CoderAgentChatAction", () => {
 			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
 		});
 
-		test("non-404 CoderAPIError from getCoderUserByUsername is not classified as user_not_found", async () => {
+		test("users/me 401 (non-404) classifies as api_error", async () => {
 			coderClient.mockGetAuthenticatedUser.mockRejectedValue(
 				new CoderAPIError("Coder API error: Unauthorized", 401),
 			);
@@ -2489,7 +2367,7 @@ describe("CoderAgentChatAction", () => {
 			}
 
 			expect(caught).toBeInstanceOf(ActionFailureError);
-			expect((caught as ActionFailureError).kind).not.toBe("user_not_found");
+			expect((caught as ActionFailureError).kind).toBe("api_error");
 			expect((caught as ActionFailureError).cause).toBeInstanceOf(
 				CoderAPIError,
 			);

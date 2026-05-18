@@ -39,8 +39,6 @@ export type ActionInputs = z.infer<typeof ActionInputsSchema>;
 // branch on this enum without parsing the human-readable message.
 export const ChatErrorKindSchema = z.enum([
 	"spend_exceeded",
-	"user_not_found",
-	"user_ambiguous",
 	"org_not_found",
 	"api_error",
 	"timeout",

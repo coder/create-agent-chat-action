@@ -130,29 +130,6 @@ describe("classifyError", () => {
 		});
 	});
 
-	test("maps the user-not-found error from getCoderUserByGitHubId", () => {
-		const err = new CoderAPIError(
-			"No Coder user found with GitHub user ID 12345",
-			404,
-			undefined,
-			"user_not_found",
-		);
-		const result = classifyError(err);
-		expect(result.kind).toBe("user_not_found");
-		expect(result.message).toContain("No Coder user found");
-	});
-
-	test("maps the multi-user error from getCoderUserByGitHubId", () => {
-		const err = new CoderAPIError(
-			"Multiple Coder users found with GitHub user ID 12345",
-			409,
-			undefined,
-			"user_ambiguous",
-		);
-		const result = classifyError(err);
-		expect(result.kind).toBe("user_ambiguous");
-	});
-
 	test("falls back to api_error for unknown CoderAPIError shapes", () => {
 		const err = new CoderAPIError("Coder API error: Bad Gateway", 502);
 		const result = classifyError(err);
@@ -201,25 +178,6 @@ describe("classifyError", () => {
 		expect(result.kind).toBe("api_error");
 		expect(result.message).toBe("connection refused");
 	});
-
-	// errorCode takes precedence over the spend-exceeded body shape so the
-	// classifier never silently misclassifies a user-lookup error that
-	// happens to ride a 409 with a spend-shaped body.
-	test("errorCode takes precedence over a spend-shaped 409 body", () => {
-		const err = new CoderAPIError(
-			"Multiple Coder users found with GitHub user ID 12345",
-			409,
-			JSON.stringify({
-				message: "unrelated",
-				spent_micros: 1,
-				limit_micros: 2,
-				resets_at: "",
-			}),
-			"user_ambiguous",
-		);
-		const result = classifyError(err);
-		expect(result.kind).toBe("user_ambiguous");
-	});
 });
 
 describe("buildFailureCommentBody", () => {
@@ -239,29 +197,6 @@ describe("buildFailureCommentBody", () => {
 		expect(body).toContain("$1.23");
 		expect(body).toContain("$5.00");
 		expect(body).toContain(agentsUrl);
-		expect(body.endsWith(marker)).toBe(true);
-	});
-
-	test("user_not_found body names both identity inputs and ends with marker", () => {
-		const detail: FailureDetail = {
-			kind: "user_not_found",
-			message: "No Coder user found with GitHub user ID 12345",
-		};
-		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
-		expect(body).toContain("chat-error-kind=user_not_found");
-		expect(body).toContain("acting-github-user-id");
-		expect(body).toContain("acting-coder-username");
-		expect(body.endsWith(marker)).toBe(true);
-	});
-
-	test("user_ambiguous body suggests acting-coder-username and ends with marker", () => {
-		const detail: FailureDetail = {
-			kind: "user_ambiguous",
-			message: "Multiple Coder users found with GitHub user ID 12345",
-		};
-		const body = buildFailureCommentBody(detail, { agentsUrl, marker });
-		expect(body).toContain("chat-error-kind=user_ambiguous");
-		expect(body).toContain("acting-coder-username");
 		expect(body.endsWith(marker)).toBe(true);
 	});
 

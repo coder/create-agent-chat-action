@@ -284,12 +284,9 @@ export type CreateChatMessageResponse = z.infer<
 	typeof CreateChatMessageResponseSchema
 >;
 
-// Full enum for the `chat-error-kind` action output. This client only
-// raises `user_not_found` and `user_ambiguous`; the rest are populated
-// downstream when API errors are mapped to outputs.
+// Full enum for the `chat-error-kind` action output. The action populates
+// these downstream when API errors are mapped to outputs.
 export const ChatErrorKindSchema = z.enum([
-	"user_not_found",
-	"user_ambiguous",
 	"org_not_found",
 	"spend_exceeded",
 	"api_error",

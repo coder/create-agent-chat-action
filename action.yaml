@@ -117,7 +117,7 @@ outputs:
     description: "Base branch name when available."
 
   chat-error-kind:
-    description: "Machine-readable error kind when the chat fails (one of `spend_exceeded`, `user_not_found`, `user_ambiguous`, `org_not_found`, `api_error`, `timeout`)."
+    description: "Machine-readable error kind when the chat fails (one of `spend_exceeded`, `org_not_found`, `api_error`, `timeout`)."
 
   chat-error-message:
     description: "Human-readable error message when the chat fails."

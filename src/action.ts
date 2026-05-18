@@ -572,11 +572,11 @@ export class CoderAgentChatAction {
 	 * of who triggered the workflow; this gate's load-bearing job is the
 	 * fail-closed refusal to call `createChat` on a hostile trigger. There
 	 * is no input bypass: workflow authors targeting fork PRs or low-trust
-	 * comment channels must add their own `if:` filter (see README\'s
+	 * comment channels must add their own `if:` filter (see README's
 	 * `pull_request_target` recipe and the security model section).
 	 *
 	 * On `trusted` and `no-signal` verdicts the action proceeds; both are
-	 * logged so an operator debugging identity resolution can tell which
+	 * logged so an operator debugging trust-gate behavior can tell which
 	 * branch fired.
 	 */
 	assertTrustedTrigger(): void {
@@ -597,7 +597,7 @@ export class CoderAgentChatAction {
 			// no-signal: events like `issues`, `push`, same-repo
 			// `pull_request`, and `workflow_dispatch` carry no
 			// sender-association data the gate can act on. Log so an
-			// operator debugging identity resolution can tell the gate ran
+			// operator debugging trust-gate behavior can tell the gate ran
 			// and deferred, rather than being skipped.
 			core.info(
 				"Trust gate found no signal in the event payload; deferring " +
@@ -621,7 +621,7 @@ export class CoderAgentChatAction {
 	 * names an org that does not exist (HTTP 404) or the resolved user has
 	 * no org memberships. Other API errors propagate as `CoderAPIError`. The
 	 * original error is attached via `options.cause` on every wrap;
-	 * `run()`\'s `handleFailure` re-classifies the failure into the
+	 * `run()`'s `handleFailure` re-classifies the failure into the
 	 * failure-path comment.
 	 */
 	async resolveOrganizationID(user: CoderSDKUser): Promise<string> {
@@ -810,7 +810,7 @@ export class CoderAgentChatAction {
 		// further so two workflow runs with the same scope can maintain
 		// distinct chats. Workflows that want per-actor separation can
 		// set `idempotency-key: ${{ github.actor }}` themselves.
-		const sanitizedKey = this.inputs.idempotencyKey
+		const sanitizedIdempotency = this.inputs.idempotencyKey
 			? sanitizeLabelKey(this.inputs.idempotencyKey)
 			: undefined;
 		const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
@@ -822,7 +822,7 @@ export class CoderAgentChatAction {
 			const follow = await this.findReuseMatch(
 				ghTarget,
 				workflow,
-				sanitizedKey,
+				sanitizedIdempotency,
 			);
 			if (follow) {
 				core.info(`Reusing existing chat: ${follow.id}`);
@@ -848,7 +848,7 @@ export class CoderAgentChatAction {
 			content: [{ type: "text", text: this.inputs.chatPrompt }],
 			workspace_id: this.inputs.workspaceId,
 			model_config_id: this.inputs.modelConfigId,
-			labels: this.buildChatLabels(ghTarget, workflow, sanitizedKey),
+			labels: this.buildChatLabels(ghTarget, workflow, sanitizedIdempotency),
 		};
 
 		const createdChat = await this.coder.createChat(req);
@@ -1000,7 +1000,7 @@ export class CoderAgentChatAction {
 	private async findReuseMatch(
 		ghTarget: string,
 		workflow: string | undefined,
-		sanitizedKey: string | undefined,
+		sanitizedIdempotency: string | undefined,
 	): Promise<CoderChat | undefined> {
 		const labels: string[] = [
 			`${ACTION_LABEL_KEYS.marker}:true`,
@@ -1009,8 +1009,8 @@ export class CoderAgentChatAction {
 		if (workflow) {
 			labels.push(`${ACTION_LABEL_KEYS.workflow}:${workflow}`);
 		}
-		if (sanitizedKey) {
-			labels.push(`${ACTION_LABEL_KEYS.idempotency}:${sanitizedKey}`);
+		if (sanitizedIdempotency) {
+			labels.push(`${ACTION_LABEL_KEYS.idempotency}:${sanitizedIdempotency}`);
 		}
 		let chats: CoderChat[];
 		try {
@@ -1068,7 +1068,7 @@ export class CoderAgentChatAction {
 	private buildChatLabels(
 		ghTarget: string,
 		workflow: string | undefined,
-		sanitizedKey: string | undefined,
+		sanitizedIdempotency: string | undefined,
 	): Record<string, string> {
 		const labels: Record<string, string> = {
 			[ACTION_LABEL_KEYS.marker]: "true",
@@ -1077,8 +1077,8 @@ export class CoderAgentChatAction {
 		if (workflow) {
 			labels[ACTION_LABEL_KEYS.workflow] = workflow;
 		}
-		if (sanitizedKey) {
-			labels[ACTION_LABEL_KEYS.idempotency] = sanitizedKey;
+		if (sanitizedIdempotency) {
+			labels[ACTION_LABEL_KEYS.idempotency] = sanitizedIdempotency;
 		}
 		return labels;
 	}

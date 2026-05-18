@@ -72,12 +72,7 @@ export type FailureDetail =
 			resetsAt: string;
 	  }
 	| {
-			kind:
-				| "user_not_found"
-				| "user_ambiguous"
-				| "org_not_found"
-				| "api_error"
-				| "timeout";
+			kind: "org_not_found" | "api_error" | "timeout";
 			message: string;
 	  };
 
@@ -113,16 +108,16 @@ export function deriveCommentKey(
 	if (inputs.idempotencyKey) {
 		return sanitizeLabelKey(inputs.idempotencyKey);
 	}
-	const match = inputs.githubURL.match(GITHUB_URL_REGEX);
+	const parsed = parseGithubItemURL(inputs.githubURL);
 	let base: string;
-	if (!match) {
+	if (!parsed) {
 		// The action validates githubURL upstream; if we get here the input is
 		// malformed and the failure-path comment cannot find a stable target.
 		// Fall back to the URL itself so re-runs at least collapse on identical
 		// URLs, even if the marker is uglier.
 		base = inputs.githubURL;
 	} else {
-		base = `${match[1]}/${match[2]}#${match[3]}`;
+		base = `${parsed.owner}/${parsed.repo}#${parsed.number}`;
 	}
 	if (inputs.workflow) {
 		return `${base}:${inputs.workflow}`;
@@ -132,10 +127,7 @@ export function deriveCommentKey(
 
 // Map a thrown error to a FailureDetail.
 //
-// Classification keys on explicit signals so a message reword cannot demote
-// a kind to `api_error`:
-//   - `kind` on CoderAPIError (set by the client) marks user-lookup
-//     failures.
+// Classification:
 //   - 409 with the spend-exceeded body shape (`spent_micros`, `limit_micros`,
 //     `resets_at`) becomes `spend_exceeded`.
 //   - Anything else becomes `api_error`. The message is the body's `message`
@@ -143,12 +135,6 @@ export function deriveCommentKey(
 //     falls back to `err.message` only when the body is empty.
 export function classifyError(err: unknown): FailureDetail {
 	if (err instanceof CoderAPIError) {
-		// Check the explicit error-code discriminator first so a client error
-		// can never be misclassified by an unrelated 409 body shape.
-		const code = mapErrorCodeToKind(err.kind);
-		if (code) {
-			return { kind: code, message: err.message };
-		}
 		const spend = parseSpendExceededBody(err.response);
 		if (err.statusCode === 409 && spend) {
 			return {
@@ -168,18 +154,6 @@ export function classifyError(err: unknown): FailureDetail {
 		return { kind: "api_error", message: err.message };
 	}
 	return { kind: "api_error", message: String(err) };
-}
-
-function mapErrorCodeToKind(
-	code: ChatErrorKind | undefined,
-): "user_not_found" | "user_ambiguous" | undefined {
-	switch (code) {
-		case "user_not_found":
-		case "user_ambiguous":
-			return code;
-		default:
-			return undefined;
-	}
 }
 
 interface SpendExceededFields {
@@ -315,31 +289,6 @@ export function buildFailureCommentBody(
 				lines.push(`- Resets at: ${detail.resetsAt}`);
 			}
 			lines.push("", linkLine);
-			break;
-		case "user_not_found":
-			lines.push(
-				"No Coder user could be resolved for this run. Adjust either " +
-					"the `acting-github-user-id` input (the GitHub identity is not " +
-					"linked to a Coder user) or pass `acting-coder-username` directly.",
-				"",
-				`- chat-error-kind=${detail.kind}`,
-				renderDetailBlock(detail.message),
-				"",
-				linkLine,
-			);
-			break;
-		case "user_ambiguous":
-			lines.push(
-				"Multiple Coder users matched the GitHub identity. Set the " +
-					"`acting-coder-username` input to the specific account this " +
-					"workflow should use as the acting user (for org pick and the " +
-					"per-user reuse label).",
-				"",
-				`- chat-error-kind=${detail.kind}`,
-				renderDetailBlock(detail.message),
-				"",
-				linkLine,
-			);
 			break;
 		case "org_not_found":
 			lines.push(

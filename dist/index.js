@@ -26876,8 +26876,6 @@ var CreateChatMessageResponseSchema = exports_external.object({
   queued: exports_external.boolean()
 });
 var ChatErrorKindSchema = exports_external.enum([
-  "user_not_found",
-  "user_ambiguous",
   "org_not_found",
   "spend_exceeded",
   "api_error",
@@ -26939,12 +26937,12 @@ function deriveCommentKey(inputs) {
   if (inputs.idempotencyKey) {
     return sanitizeLabelKey(inputs.idempotencyKey);
   }
-  const match = inputs.githubURL.match(GITHUB_URL_REGEX);
+  const parsed = parseGithubItemURL(inputs.githubURL);
   let base;
-  if (!match) {
+  if (!parsed) {
     base = inputs.githubURL;
   } else {
-    base = `${match[1]}/${match[2]}#${match[3]}`;
+    base = `${parsed.owner}/${parsed.repo}#${parsed.number}`;
   }
   if (inputs.workflow) {
     return `${base}:${inputs.workflow}`;
@@ -26953,10 +26951,6 @@ function deriveCommentKey(inputs) {
 }
 function classifyError(err) {
   if (err instanceof CoderAPIError) {
-    const code = mapErrorCodeToKind(err.kind);
-    if (code) {
-      return { kind: code, message: err.message };
-    }
     const spend = parseSpendExceededBody(err.response);
     if (err.statusCode === 409 && spend) {
       return {
@@ -26976,15 +26970,6 @@ function classifyError(err) {
     return { kind: "api_error", message: err.message };
   }
   return { kind: "api_error", message: String(err) };
-}
-function mapErrorCodeToKind(code) {
-  switch (code) {
-    case "user_not_found":
-    case "user_ambiguous":
-      return code;
-    default:
-      return;
-  }
 }
 function parseSpendExceededBody(response) {
   const obj = parseJSONObject(response);
@@ -27050,12 +27035,6 @@ function buildFailureCommentBody(detail, ctx) {
         lines.push(`- Resets at: ${detail.resetsAt}`);
       }
       lines.push("", linkLine);
-      break;
-    case "user_not_found":
-      lines.push("No Coder user could be resolved for this run. Adjust either " + "the `acting-github-user-id` input (the GitHub identity is not " + "linked to a Coder user) or pass `acting-coder-username` directly.", "", `- chat-error-kind=${detail.kind}`, renderDetailBlock(detail.message), "", linkLine);
-      break;
-    case "user_ambiguous":
-      lines.push("Multiple Coder users matched the GitHub identity. Set the " + "`acting-coder-username` input to the specific account this " + "workflow should use as the acting user (for org pick and the " + "per-user reuse label).", "", `- chat-error-kind=${detail.kind}`, renderDetailBlock(detail.message), "", linkLine);
       break;
     case "org_not_found":
       lines.push("The resolved Coder user has no matching organization. Set the " + "`coder-organization` input or grant the user a membership.", "", `- chat-error-kind=${detail.kind}`, renderDetailBlock(detail.message), "", linkLine);
@@ -27519,13 +27498,13 @@ class CoderAgentChatAction {
         githubIssueNumber
       });
     }
-    const sanitizedKey = this.inputs.idempotencyKey ? sanitizeLabelKey(this.inputs.idempotencyKey) : undefined;
+    const sanitizedIdempotency = this.inputs.idempotencyKey ? sanitizeLabelKey(this.inputs.idempotencyKey) : undefined;
     const ghTarget = `${githubOrg}/${githubRepo}#${githubIssueNumber}`;
     const workflow = process.env.GITHUB_WORKFLOW || undefined;
     if (this.inputs.forceNewChat) {
       core2.info("force-new-chat=true: skipping chat-reuse lookup");
     } else {
-      const follow = await this.findReuseMatch(ghTarget, workflow, sanitizedKey);
+      const follow = await this.findReuseMatch(ghTarget, workflow, sanitizedIdempotency);
       if (follow) {
         core2.info(`Reusing existing chat: ${follow.id}`);
         return this.runFollowUp({
@@ -27545,7 +27524,7 @@ class CoderAgentChatAction {
       content: [{ type: "text", text: this.inputs.chatPrompt }],
       workspace_id: this.inputs.workspaceId,
       model_config_id: this.inputs.modelConfigId,
-      labels: this.buildChatLabels(ghTarget, workflow, sanitizedKey)
+      labels: this.buildChatLabels(ghTarget, workflow, sanitizedIdempotency)
     };
     const createdChat = await this.coder.createChat(req);
     core2.info(`Agents chat created successfully (id: ${createdChat.id}, status: ${createdChat.status})`);
@@ -27626,7 +27605,7 @@ class CoderAgentChatAction {
       chatCreated: false
     };
   }
-  async findReuseMatch(ghTarget, workflow, sanitizedKey) {
+  async findReuseMatch(ghTarget, workflow, sanitizedIdempotency) {
     const labels = [
       `${ACTION_LABEL_KEYS.marker}:true`,
       `${ACTION_LABEL_KEYS.target}:${ghTarget}`
@@ -27634,8 +27613,8 @@ class CoderAgentChatAction {
     if (workflow) {
       labels.push(`${ACTION_LABEL_KEYS.workflow}:${workflow}`);
     }
-    if (sanitizedKey) {
-      labels.push(`${ACTION_LABEL_KEYS.idempotency}:${sanitizedKey}`);
+    if (sanitizedIdempotency) {
+      labels.push(`${ACTION_LABEL_KEYS.idempotency}:${sanitizedIdempotency}`);
     }
     let chats;
     try {
@@ -27664,7 +27643,7 @@ class CoderAgentChatAction {
     }
     return live[0];
   }
-  buildChatLabels(ghTarget, workflow, sanitizedKey) {
+  buildChatLabels(ghTarget, workflow, sanitizedIdempotency) {
     const labels = {
       [ACTION_LABEL_KEYS.marker]: "true",
       [ACTION_LABEL_KEYS.target]: ghTarget
@@ -27672,8 +27651,8 @@ class CoderAgentChatAction {
     if (workflow) {
       labels[ACTION_LABEL_KEYS.workflow] = workflow;
     }
-    if (sanitizedKey) {
-      labels[ACTION_LABEL_KEYS.idempotency] = sanitizedKey;
+    if (sanitizedIdempotency) {
+      labels[ACTION_LABEL_KEYS.idempotency] = sanitizedIdempotency;
     }
     return labels;
   }
@@ -27752,8 +27731,6 @@ var ActionInputsSchema = ActionInputsObjectSchema.refine((data) => !(data.existi
 });
 var ChatErrorKindSchema2 = exports_external.enum([
   "spend_exceeded",
-  "user_not_found",
-  "user_ambiguous",
   "org_not_found",
   "api_error",
   "timeout"

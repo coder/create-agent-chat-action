@@ -150,6 +150,28 @@ describe("ActionInputsSchema", () => {
 			};
 			expect(() => ActionInputsSchema.parse(input)).toThrow();
 		});
+
+		test("rejects existing-chat-id combined with force-new-chat", () => {
+			const result = ActionInputsSchema.safeParse({
+				...actionInputValid,
+				existingChatId: "550e8400-e29b-41d4-a716-446655440000",
+				forceNewChat: true,
+			});
+			expect(result.success).toBe(false);
+			if (result.success) {
+				return;
+			}
+			expect(result.error.issues).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						path: ["forceNewChat"],
+						message: expect.stringMatching(
+							/existing-chat-id and force-new-chat/,
+						),
+					}),
+				]),
+			);
+		});
 	});
 
 	describe("Wait mode", () => {
