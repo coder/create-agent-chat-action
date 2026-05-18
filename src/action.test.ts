@@ -15,7 +15,6 @@ import {
 	createFakeClock,
 	createMockOctokit,
 	createMockInputs,
-	createMockContext,
 	mockUser,
 	mockUserNoOrgs,
 	mockChat,
@@ -46,7 +45,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -66,7 +64,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -84,7 +81,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError("Missing GitHub URL");
@@ -96,7 +92,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError(
@@ -112,7 +107,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError(
@@ -128,7 +122,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -148,7 +141,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -168,7 +160,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.parseGithubURL();
@@ -194,7 +185,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError(
@@ -210,7 +200,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			expect(() => action.parseGithubURL()).toThrowError(
@@ -226,7 +215,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.generateChatUrl(mockChat.id);
@@ -242,7 +230,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = action.generateChatUrl(mockChat.id);
@@ -265,7 +252,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.commentOnIssue({
@@ -310,7 +296,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.commentOnIssue({
@@ -343,7 +328,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await expect(
@@ -375,7 +359,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -407,7 +390,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const out = action.buildOutputs(mockUser.username, mockChat, true);
@@ -435,7 +417,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const out = action.buildOutputs(
@@ -468,7 +449,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -494,7 +474,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -525,7 +504,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -555,7 +533,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 			const diff = mockChatWithDiff.diff_status;
 			if (!diff) {
@@ -589,7 +566,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 			const chatWithError: typeof mockChat = {
 				...mockChat,
@@ -609,7 +585,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const out = action.buildOutputs(mockUser.username, mockChat, true);
@@ -629,7 +604,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -665,7 +639,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		const result = await action.run();
@@ -703,7 +676,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		await expect(action.run()).rejects.toThrow();
@@ -726,7 +698,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		// The follow-up message succeeded, so the action should not fail red
@@ -757,7 +728,6 @@ describe("CoderAgentChatAction", () => {
 			coderClient,
 			octokit as unknown as Octokit,
 			inputs,
-			createMockContext(),
 		);
 
 		await action.run();
@@ -781,7 +751,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -808,7 +777,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -827,7 +795,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -848,7 +815,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				action.warnUnwiredInputs();
@@ -857,223 +823,6 @@ describe("CoderAgentChatAction", () => {
 			} finally {
 				warning.mockRestore();
 			}
-		});
-	});
-
-	describe("Trust gate (top-level, always-on)", () => {
-		test("refuses fork pull requests before any Coder API call", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "pull_request",
-				actor: "attacker",
-				payload: {
-					sender: { id: 99999 },
-					pull_request: {
-						head: { repo: { fork: true, full_name: "attacker/fork" } },
-						base: { repo: { full_name: "owner/repo" } },
-					},
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			let caught: unknown;
-			try {
-				await action.run();
-			} catch (e) {
-				caught = e;
-			}
-			expect(caught).toBeInstanceOf(Error);
-			const message = (caught as Error).message;
-			expect(message).toContain("untrusted trigger");
-			expect(message).toContain("fork");
-			expect(message).toContain("if:");
-			// Nothing was called: the gate is fail-closed before any
-			// API call, including users/me and createChat.
-			expect(coderClient.mockGetAuthenticatedUser).not.toHaveBeenCalled();
-			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
-		});
-
-		test("refuses pull_request from a deleted fork (head.repo === null)", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "pull_request",
-				actor: "attacker",
-				payload: {
-					sender: { id: 99999 },
-					pull_request: {
-						// GitHub returns head.repo === null when the source fork
-						// repo has been deleted. With head.repo missing the
-						// full_name comparison can't run, so the gate must treat
-						// the null itself as the fork signal.
-						head: { repo: null },
-						base: { repo: { full_name: "owner/repo" } },
-					},
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			await expect(action.run()).rejects.toThrow(/untrusted trigger.*fork/);
-			expect(coderClient.mockGetAuthenticatedUser).not.toHaveBeenCalled();
-			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
-		});
-
-		test("refuses pull_request when head.repo.full_name diverges from base.repo.full_name, even with fork === false", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "pull_request",
-				actor: "attacker",
-				payload: {
-					sender: { id: 99999 },
-					pull_request: {
-						// Same-owner branch-rename mid-PR (or any payload where
-						// fork=false but full_name disagrees) must still be
-						// refused. Pins the third condition independently from
-						// the fork=true short-circuit.
-						head: {
-							repo: { fork: false, full_name: "attacker/fork" },
-						},
-						base: { repo: { full_name: "owner/repo" } },
-					},
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			await expect(action.run()).rejects.toThrow(/untrusted trigger.*fork/);
-			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
-		});
-
-		test("refuses NONE-association comment events", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "issue_comment",
-				actor: "drive-by",
-				payload: {
-					sender: { id: 99999 },
-					comment: { author_association: "NONE" },
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			let caught: unknown;
-			try {
-				await action.run();
-			} catch (e) {
-				caught = e;
-			}
-			expect(caught).toBeInstanceOf(Error);
-			expect((caught as Error).message).toContain("NONE");
-			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
-		});
-
-		test("trusted MEMBER comment proceeds and createChat is reached", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "issue_comment",
-				actor: "member",
-				payload: {
-					sender: { id: 42 },
-					comment: { author_association: "MEMBER" },
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			await action.run();
-			expect(coderClient.mockCreateChat).toHaveBeenCalledTimes(1);
-		});
-
-		test("no-signal events (issues, push, workflow_dispatch) proceed", async () => {
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({ commentOnIssue: false });
-			const context = createMockContext({
-				eventName: "issues",
-				actor: "anyone",
-				payload: {},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			await action.run();
-			expect(coderClient.mockCreateChat).toHaveBeenCalledTimes(1);
-		});
-
-		test("the gate has no input bypass; idempotency-key cannot bypass it", async () => {
-			// No action input bypasses the gate. Set every remaining input to
-			// confirm an untrusted trigger still refuses.
-			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
-			coderClient.mockCreateChat.mockResolvedValue(mockChat);
-
-			const inputs = createMockInputs({
-				commentOnIssue: false,
-				idempotencyKey: "anything",
-				coderOrganization: "anything",
-				workspaceId: "11111111-1111-1111-1111-111111111111",
-			});
-			const context = createMockContext({
-				eventName: "pull_request",
-				actor: "attacker",
-				payload: {
-					sender: { id: 99999 },
-					pull_request: {
-						head: { repo: { fork: true, full_name: "attacker/fork" } },
-						base: { repo: { full_name: "owner/repo" } },
-					},
-				},
-			});
-			const action = new CoderAgentChatAction(
-				coderClient,
-				octokit as unknown as Octokit,
-				inputs,
-				context,
-			);
-
-			await expect(action.run()).rejects.toThrow(/untrusted trigger/);
-			expect(coderClient.mockCreateChat).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1091,7 +840,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1126,7 +874,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1169,7 +916,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1209,7 +955,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1252,7 +997,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1300,7 +1044,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1337,7 +1080,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1376,7 +1118,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1434,7 +1175,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1467,7 +1207,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1514,7 +1253,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1552,7 +1290,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1586,7 +1323,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1623,7 +1359,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1669,7 +1404,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1719,7 +1453,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1760,7 +1493,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1800,7 +1532,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -1837,7 +1568,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow("Failed to create chat");
@@ -1872,7 +1602,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await expect(action.run()).rejects.toThrow();
@@ -1908,7 +1637,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow();
@@ -1936,7 +1664,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow();
@@ -1974,7 +1701,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await expect(action.run()).rejects.toThrow();
@@ -2010,7 +1736,6 @@ describe("CoderAgentChatAction", () => {
 						coderClient,
 						octokit as unknown as Octokit,
 						inputs,
-						createMockContext(),
 					);
 
 					await expect(action.run()).rejects.toThrow();
@@ -2050,7 +1775,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await expect(action.run()).rejects.toThrow();
@@ -2090,7 +1814,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				let caught: unknown;
@@ -2127,7 +1850,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				let caught: unknown;
@@ -2157,7 +1879,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2191,7 +1912,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2217,7 +1937,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2241,7 +1960,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2265,7 +1983,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2293,7 +2010,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2324,7 +2040,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2359,7 +2074,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const result = await action.run();
@@ -2386,7 +2100,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2419,7 +2132,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2456,7 +2168,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await action.run();
@@ -2489,7 +2200,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await action.run();
@@ -2515,7 +2225,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			let caught: unknown;
@@ -2540,7 +2249,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2572,7 +2280,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await action.run();
@@ -2604,7 +2311,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2648,7 +2354,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const outputs = await action.run();
@@ -2708,7 +2413,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 				clock,
 			);
 
@@ -2741,7 +2445,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			const outputs = await action.run();
@@ -2778,7 +2481,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2803,7 +2505,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2826,7 +2527,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2847,7 +2547,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2874,7 +2573,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await expect(action.run()).rejects.toThrow(
@@ -2898,7 +2596,6 @@ describe("CoderAgentChatAction", () => {
 				coderClient,
 				octokit as unknown as Octokit,
 				inputs,
-				createMockContext(),
 			);
 
 			await action.run();
@@ -2930,7 +2627,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await action.run();
@@ -2968,7 +2664,6 @@ describe("CoderAgentChatAction", () => {
 					coderClient,
 					octokit as unknown as Octokit,
 					inputs,
-					createMockContext(),
 				);
 
 				await action.run();

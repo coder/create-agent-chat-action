@@ -39,7 +39,7 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
-The chat runs as whoever the `coder-token` belongs to; that identity is the only one the chats API supports. Workflows that target events that route to this action without `secrets.CODER_TOKEN` redaction (`issue_comment`, `pull_request_target`, etc.) must add their own `if:` gate; see [Security model](#security-model).
+The chat runs as whoever the `coder-token` belongs to; that identity is the only one the chats API supports. Workflows that gate triggers loosely (`issue_comment`, `pull_request_target`, etc.) own the trust decision via an `if:` filter; see [Security model](#security-model).
 
 ## Inputs
 
@@ -149,10 +149,10 @@ permissions:
 jobs:
   doc-check:
     # Internal PRs only. `pull_request_target` exposes `secrets.*` to fork
-    # PRs by design, so the workflow must filter trust before invoking
-    # this action. Swap to a label-allowlist `if:` (for example,
+    # PRs, so the workflow filters trust before invoking the action. Swap
+    # to a label-allowlist `if:` (for example,
     # `contains(github.event.pull_request.labels.*.name, 'safe-to-review')`)
-    # if you want to gate via maintainer-applied labels instead.
+    # to gate on a maintainer-applied label instead.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -169,7 +169,7 @@ jobs:
           wait: complete
 ```
 
-`pull_request_target` runs against the base repo and has access to secrets even for fork PRs. The action's trust gate refuses fork PRs anyway, but the workflow-level `if:` is the right place to make the trust decision because it short-circuits before the runner starts the step. The chat is owned by the `coder-token` holder; the prompt is benign, but the agent will read PR content with its tools (see [Security model](#security-model)).
+`pull_request_target` runs against the base repo and exposes `secrets.*` to fork PRs. The workflow-level `if:` is the canonical place to gate trust: it short-circuits before the runner starts the step. The chat is owned by the `coder-token` holder; the prompt is benign, but the agent will read PR content with its tools (see [Security model](#security-model)).
 
 ### Send a follow-up
 
@@ -223,7 +223,7 @@ The action sets `chat-error-kind` and `chat-error-message` on failure, posts a c
 | ----------------- | ------------- | ---------- |
 | `spend_exceeded`  | Chat spend limit reached. Spent and limit are in the comment. | Wait for reset or raise the deployment's per-user limit. |
 | `org_not_found`   | Org missing or the token owner has no memberships. The comment names which. | Fix or set `coder-organization`. |
-| `api_error`       | Any other Coder API error, including trust-gate refusal and `github-url` host validation. The comment includes the underlying message in a code block; wrapped errors carry the original `CoderAPIError` via `Error.cause`, and the workflow log renders the full cause chain. | Common causes: bad token, bad `workspace-id`, deployment unreachable, fork PR refused by the trust gate, non-github.com `github-url`. |
+| `api_error`       | Any other Coder API error. The comment includes the underlying message in a code block; wrapped errors carry the original `CoderAPIError` via `Error.cause`, and the workflow log renders the full cause chain. | Common causes: bad token, bad `workspace-id`, deployment unreachable, non-github.com `github-url`. |
 | `timeout`         | `wait: complete` didn't reach terminal in time. | Raise `wait-timeout-seconds`, or split the work. |
 
 Branch on the kind without parsing the message:
@@ -235,36 +235,45 @@ Branch on the kind without parsing the message:
 
 ## Security model
 
-### The chat owner is the `coder-token` holder
+### Chat ownership
 
 `POST /api/experimental/chats` binds the chat owner to whoever the session token authenticates as. There is no owner override. Anyone who can read `secrets.CODER_TOKEN` acts as that Coder user end-to-end, including the agent's tool plane (shell, `gh`, `git push`, `coder external-auth`, MCP servers). Treat the token as a high-value secret. If your platform exposes per-user spend caps, template allowlists, tool allowlists, or scoped external_auth grants, use them on the token owner; this action cannot constrain what the agent can do once a chat exists.
 
-### Trust gate is fail-closed; no input bypass
+### Trigger gating
 
-Before every chat creation, the action calls `classifyTriggerTrust` on the GitHub event payload and refuses untrusted triggers:
+The action does not gate triggers. The workflow author defines trigger policy with `if:`. GitHub already gates the load-bearing case: `secrets.*` is not exposed to `pull_request` runs from forks, so a fork-PR run that depends on `coder-token` cannot reach the action. Workflows that opt into broader trigger surfaces (`pull_request_target`, `issue_comment`, `pull_request_review`, `pull_request_review_comment`) opt out of that default and must restate the policy themselves.
 
-- Fork pull requests (`head.repo` null, `head.repo.fork === true`, or `head.repo.full_name !== base.repo.full_name`).
-- Comment or review events whose `comment.author_association` or `review.author_association` is not `OWNER`, `MEMBER`, or `COLLABORATOR`.
+Patterns:
 
-There is no input bypass: dropping the previous `acting-*` overrides was deliberate. Workflows that target events where `secrets.CODER_TOKEN` is available alongside broad trigger access (`issue_comment`, `pull_request_review`, `pull_request_review_comment`, `pull_request_target`) must add their own `if:` gate before the step. Examples:
+```yaml
+# Internal PRs only (on pull_request_target, which exposes secrets to fork PRs).
+if: github.event.pull_request.head.repo.full_name == github.repository
+```
 
-- `if: github.event.pull_request.head.repo.full_name == github.repository` (internal PRs only).
-- `if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)` (trusted commenters only).
-- `if: contains(github.event.pull_request.labels.*.name, 'safe-to-review')` (label allowlist on a maintainer-applied label).
+```yaml
+# Trusted commenters only (on issue_comment / pull_request_review_comment).
+if: |
+  github.event.comment.author_association == 'OWNER' ||
+  github.event.comment.author_association == 'MEMBER' ||
+  github.event.comment.author_association == 'COLLABORATOR'
+```
 
-The gate does not read `issue.author_association` or `pull_request.author_association` because those describe the resource opener, not the event sender (a `MEMBER` labeling a `NONE` user's issue is fine).
+```yaml
+# Maintainer-applied label allowlist.
+if: contains(github.event.pull_request.labels.*.name, 'safe-to-run')
+```
+
+See GitHub's [Events that trigger workflows](https://docs.github.com/en/actions/reference/events-that-trigger-workflows) for the full event matrix and the `pull_request_target` and secrets-on-forks rules.
 
 ### Indirect prompt injection
 
-The agent reads attacker-authored content during its run: PR titles, PR bodies, issue comments, diffs, and anything else the prompt tells it to fetch (`gh pr view`, `gh issue view --comments`, `gh pr diff`). The agent is a language model; it will follow embedded instructions in that content if they look plausible. Treat any public-repo trigger as adversarial regardless of the trust gate's verdict, because the gate decides whether to create the chat but does not constrain what the chat reads once it runs.
+The agent reads attacker-authored content during its run: PR titles, PR bodies, issue comments, diffs, and anything else the prompt tells it to fetch (`gh pr view`, `gh issue view --comments`, `gh pr diff`). The agent is a language model; it will follow embedded instructions in that content if they look plausible. Treat any public-repo trigger as adversarial; nothing in this action constrains what the chat reads once it runs.
 
 The action ships no defense against this class. Mitigations live deployment-side:
 
 - Pin a hardened workspace template via `workspace-id` (minimal tools, no shell, scoped network egress).
 - Use Coder's platform controls to allowlist templates, restrict tool registrations, and scope the token owner's `external_auth` grants. See [Coder Agents platform controls](https://coder.com/docs/ai-coder/agents/platform-controls).
 - Keep `coder-token` on a dedicated, minimally-privileged Coder user. The chat's blast radius is whatever that user can reach inside Coder (workspaces, external auth grants, mounted secrets).
-
-The single-most-impactful mitigation against attacker-controlled prompts on a public repo is GitHub's own rule that `secrets.*` is not available to `pull_request` events from forks; the trust gate is a second checkpoint on top of that, not a replacement.
 
 ## Limitations
 

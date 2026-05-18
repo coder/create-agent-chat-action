@@ -27200,59 +27200,16 @@ class ActionFailureError extends Error {
   coderUsername;
   chatUrl;
 }
-var TRUSTED_AUTHOR_ASSOCIATIONS = new Set([
-  "OWNER",
-  "MEMBER",
-  "COLLABORATOR"
-]);
-function classifyTriggerTrust(context) {
-  const pr = context.payload.pull_request;
-  if (pr) {
-    const headRepo = pr.head?.repo;
-    const baseRepo = pr.base?.repo;
-    const headFullName = headRepo?.full_name;
-    const baseFullName = baseRepo?.full_name;
-    const isFork = headRepo === null || headRepo?.fork === true || typeof headFullName === "string" && typeof baseFullName === "string" && headFullName !== baseFullName;
-    if (isFork) {
-      return {
-        kind: "untrusted",
-        reason: "the pull request is from a fork"
-      };
-    }
-  }
-  const associations = [
-    { source: "comment", value: context.payload.comment?.author_association },
-    { source: "review", value: context.payload.review?.author_association }
-  ];
-  for (const { source, value } of associations) {
-    if (typeof value !== "string" || value.length === 0) {
-      continue;
-    }
-    if (TRUSTED_AUTHOR_ASSOCIATIONS.has(value)) {
-      return {
-        kind: "trusted",
-        reason: `${source}.author_association is ${value}`
-      };
-    }
-    return {
-      kind: "untrusted",
-      reason: `${source}.author_association is ${value}, which lacks ` + "repository write access"
-    };
-  }
-  return { kind: "no-signal" };
-}
 
 class CoderAgentChatAction {
   coder;
   octokit;
   inputs;
-  context;
   clock;
-  constructor(coder, octokit, inputs, context, clock = defaultClock) {
+  constructor(coder, octokit, inputs, clock = defaultClock) {
     this.coder = coder;
     this.octokit = octokit;
     this.inputs = inputs;
-    this.context = context;
     this.clock = clock;
   }
   parseGithubURL() {
@@ -27393,17 +27350,6 @@ class CoderAgentChatAction {
       throw err;
     }
   }
-  assertTrustedTrigger() {
-    const trust = classifyTriggerTrust(this.context);
-    if (trust.kind === "untrusted") {
-      throw new Error("Refusing to act on an untrusted trigger: " + `${trust.reason}. ` + "Add an `if:` gate to the workflow step (for example, " + "`author_association` allowlist or a label allowlist on " + "`pull_request_target`) before invoking this action. See " + "the README security model for details.");
-    }
-    if (trust.kind === "trusted") {
-      core2.info(`Trust gate passed: ${trust.reason}`);
-    } else {
-      core2.info("Trust gate found no signal in the event payload; deferring " + "to GitHub's event-permission model.");
-    }
-  }
   async resolveOrganizationID(user) {
     if (this.inputs.coderOrganization) {
       core2.info(`Resolving Coder organization by name: ${this.inputs.coderOrganization}`);
@@ -27480,7 +27426,6 @@ class CoderAgentChatAction {
     core2.info(`GitHub owner: ${githubOrg}`);
     core2.info(`GitHub repo: ${githubRepo}`);
     core2.info(`GitHub item number: ${githubIssueNumber}`);
-    this.assertTrustedTrigger();
     const tokenOwner = await this.coder.getAuthenticatedUser();
     const coderUsername = tokenOwner.username;
     core2.info(`Resolved Coder user from \`coder-token\` (users/me): ${coderUsername}`);
@@ -27779,7 +27724,7 @@ async function main() {
     const coder = new RealCoderClient(inputs.coderURL, inputs.coderToken);
     const octokit = github.getOctokit(inputs.githubToken);
     core4.debug("Clients initialized");
-    const action = new CoderAgentChatAction(coder, octokit, inputs, github.context);
+    const action = new CoderAgentChatAction(coder, octokit, inputs);
     const outputs = await action.run();
     setActionOutputs(outputs);
     core4.debug("Action completed successfully");
