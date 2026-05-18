@@ -512,7 +512,7 @@ export class CoderAgentChatAction {
 	 * Throw when a terminal chat ended in `error`; pass `waiting` and
 	 * `completed` through unchanged. The `api_error` kind is coarse:
 	 * a workflow branching on it cannot distinguish chat-level failures
-	 * from polling-transport failures. CODAGT-290 will refine the
+	 * from polling-transport failures. Future work may refine the
 	 * mapping by inspecting `last_error`.
 	 */
 	private throwOnChatError(chat: CoderChat): CoderChat {
@@ -757,7 +757,7 @@ export class CoderAgentChatAction {
 		this.warnUnwiredInputs();
 
 		// Validate github-url and run the trust gate before any Coder API
-		// call. parseGithubURL rejects non-github.com hosts (F6); the trust
+		// call. parseGithubURL rejects non-github.com hosts; the trust
 		// gate fails closed on fork PRs and untrusted comment/review
 		// senders. Both are pre-`createChat` checkpoints.
 		const { githubOrg, githubRepo, githubIssueNumber } = this.parseGithubURL();

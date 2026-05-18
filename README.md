@@ -254,7 +254,7 @@ There is no input bypass: dropping the previous `acting-*` overrides was deliber
 
 The gate does not read `issue.author_association` or `pull_request.author_association` because those describe the resource opener, not the event sender (a `MEMBER` labeling a `NONE` user's issue is fine).
 
-### Indirect prompt injection (F1)
+### Indirect prompt injection
 
 The agent reads attacker-authored content during its run: PR titles, PR bodies, issue comments, diffs, and anything else the prompt tells it to fetch (`gh pr view`, `gh issue view --comments`, `gh pr diff`). The agent is a language model; it will follow embedded instructions in that content if they look plausible. Treat any public-repo trigger as adversarial regardless of the trust gate's verdict, because the gate decides whether to create the chat but does not constrain what the chat reads once it runs.
 

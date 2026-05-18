@@ -66,10 +66,10 @@ describe("deriveCommentKey", () => {
 	});
 
 	test("falls back to the raw URL for non-github.com hosts (host validation)", () => {
-		// F6 in the security review: the regex now anchors to github.com
-		// so an enterprise host (or attacker-chosen host) does not parse
-		// out a usable owner/repo. The marker still collapses identical
-		// URLs across re-runs, but does not pretend to know the target.
+		// The regex anchors to github.com so an enterprise host (or
+		// attacker-chosen host) does not parse out a usable owner/repo.
+		// The marker still collapses identical URLs across re-runs, but
+		// does not pretend to know the target.
 		expect(
 			deriveCommentKey({
 				githubURL: "https://code.acme.com/owner/repo/issues/42",
@@ -368,9 +368,9 @@ describe("buildDeploymentAgentsUrl", () => {
 
 describe("renderDetailBlock", () => {
 	test("wraps a plain message in a 4-backtick fenced block", () => {
-		// F9 in the security review: attacker-influenced strings flowing
-		// through `detail.message` must not break out of the markdown
-		// list context. The body now renders inside a 4-backtick fence.
+		// Attacker-influenced strings flowing through `detail.message`
+		// must not break out of the markdown list context. The body now
+		// renders inside a 4-backtick fence.
 		const body = renderDetailBlock("plain message");
 		expect(body).toBe("- Detail:\n````\nplain message\n````");
 	});

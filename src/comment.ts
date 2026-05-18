@@ -39,8 +39,7 @@ export interface GithubItemURL {
  * URL and return its components, or `undefined` if it does not match. The
  * host is anchored to `github.com` so a workflow that templates user-
  * controlled content into `github-url` cannot coerce the action into
- * commenting on an arbitrary attacker-chosen owner/repo (F6 in the
- * security review).
+ * commenting on an arbitrary attacker-chosen owner/repo.
  */
 export function parseGithubItemURL(
 	input: string | undefined,

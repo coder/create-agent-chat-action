@@ -180,13 +180,13 @@ describe("CoderAgentChatAction", () => {
 			});
 		});
 
-		test("rejects non-github.com hostnames (F6)", () => {
-			// F6 in the security review: the regex used to accept any host
-			// because it was end-anchored only. Coercing the action to
-			// comment on `https://attacker.example/coder/coder/issues/1`
-			// would have called `octokit.rest.issues.createComment` with
-			// owner=coder, repo=coder, number=1 under the workflow's
-			// `github-token`. The action now refuses.
+		test("rejects non-github.com hostnames", () => {
+			// The regex used to accept any host because it was end-anchored
+			// only. Coercing the action to comment on
+			// `https://attacker.example/coder/coder/issues/1` would have
+			// called `octokit.rest.issues.createComment` with owner=coder,
+			// repo=coder, number=1 under the workflow's `github-token`. The
+			// action now refuses.
 			const inputs = createMockInputs({
 				githubURL: "https://code.acme.com/owner/repo/issues/123",
 			});
@@ -1263,8 +1263,8 @@ describe("CoderAgentChatAction", () => {
 				caught = err;
 			}
 
-			// CODAGT-290 will refine last_error mapping; until then,
-			// every error terminal surfaces as api_error.
+			// Until last_error mapping is refined, every error terminal
+			// surfaces as api_error.
 			expect(caught).toBeInstanceOf(ActionFailureError);
 			const err = caught as ActionFailureError;
 			expect(err.kind).toBe("api_error");
@@ -2679,11 +2679,10 @@ describe("CoderAgentChatAction", () => {
 		});
 
 		test("default + match + wait=complete: polls until terminal status (no silent skip)", async () => {
-			// Regression test for DEREM-2: the reuse follow-up path must
-			// honor wait=complete the same way the existing-chat-id path
-			// does. A reuse-path follow-up to a chat already in a terminal
-			// status would otherwise return on the pre-message snapshot
-			// before the agent transitions.
+			// The reuse follow-up path must honor wait=complete the same way
+			// the existing-chat-id path does. A reuse-path follow-up to a
+			// chat already in a terminal status would otherwise return on
+			// the pre-message snapshot before the agent transitions.
 			coderClient.mockGetAuthenticatedUser.mockResolvedValue(mockUser);
 			coderClient.mockListChats.mockResolvedValue([
 				{ ...mockChat, archived: false, status: "waiting" },
