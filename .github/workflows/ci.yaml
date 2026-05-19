@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Check action.yaml has no ${{ }} literals
+        run: ./scripts/check-action-yaml.sh
+
       - name: Build
         run: make build
 

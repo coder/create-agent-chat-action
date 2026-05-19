@@ -59,7 +59,7 @@ inputs:
     default: "600"
 
   idempotency-key:
-    description: "Optional sharding key to narrow the default reuse scope. By default the action reuses the most recent non-archived chat scoped to `gh-target` and the workflow name (when `GITHUB_WORKFLOW` is set). All chats are owned by the `coder-token` holder, so the scope does not include a per-actor component. Set this to maintain multiple parallel chats on the same target/workflow (for example, one per matrix dimension). Pass `${{ github.actor }}` here if you want per-actor separation."
+    description: "Optional sharding key to narrow the default reuse scope. By default the action reuses the most recent non-archived chat scoped to `gh-target` and the workflow name (when `GITHUB_WORKFLOW` is set). All chats are owned by the `coder-token` holder, so the scope does not include a per-actor component. Set this to maintain multiple parallel chats on the same target/workflow (for example, one per matrix dimension). Pass the github.actor workflow expression to maintain one chat per triggering user."
     required: false
 
   force-new-chat:
